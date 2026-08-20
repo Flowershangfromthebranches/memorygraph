@@ -62,24 +62,6 @@ MemoryGraph 不依赖某个模型厂商，也不区分桌面端、CLI、IDE 插�
 node dist/cli.js integration manifest
 ```
 
-### 只安装 Skill 就够了吗？
-
-不够。完整链路由三部分组成：
-
-1. **MemoryGraph Skill**：理解“继续”“之前为什么这样决定”“某个 Agent 做了什么”等意图。
-2. **MemoryGraph MCP**：提供 `resume_project`、`search`、`trace` 等真实工具。
-3. **MemoryGraph Core**：同步各 Agent 的会话、保存事件/状态、验证 Git，并生成交接上下文。
-
-至少需要满足：
-
-- 接班 Agent 已安装 **Skill + MCP**。
-- MemoryGraph Core 正在运行。
-- 接班 Agent 打开的是同一个项目目录，或者明确传入相同的 `project_id`。
-
-对于 Codex、OpenCode、Command Code 和 WorkBuddy，即使前一个 Agent 没有主动调用 `remember`，接班时也会通过被动适配器增量同步它的原生会话。仍然建议所有 Agent 都安装 Skill + MCP，这样显式决策和状态可以更准确地进入公共项目状态。
-
-Trae 的原生 transcript 库是不透明/加密格式。MemoryGraph 不提取密钥；它的被动层记录 workspace 活动，完整上下文需要 Trae 在工作过程中调用已安装的 MCP + Skill 来记录和查询共享状态。
-
 ### “换一个 Agent，说一句继续”怎么使用？
 
 推荐流程：
@@ -383,24 +365,6 @@ Print a universal integration manifest for any harness:
 ```bash
 node dist/cli.js integration manifest
 ```
-
-### Is installing the Skill enough?
-
-No. The complete path has three parts:
-
-1. **MemoryGraph Skill** understands intents such as “continue”, decision explanations, and agent tracing.
-2. **MemoryGraph MCP** exposes the real `resume_project`, `search`, and related tools.
-3. **MemoryGraph Core** synchronizes agent sessions, stores state, verifies Git, and compiles handoff context.
-
-At minimum:
-
-- The receiving agent must have both the **Skill and MCP connection**.
-- MemoryGraph Core must be running.
-- The receiving agent must open the same project root or provide the same `project_id`.
-
-Codex, OpenCode, Command Code, and WorkBuddy can be synchronized passively even when the previous agent forgot to call `remember`. Installing Skill + MCP everywhere is still recommended because explicit decisions and durable state become more accurate.
-
-Trae’s native transcript store is opaque/encrypted. MemoryGraph does not extract keys. Passive capture records workspace activity; full context requires Trae to use the installed MCP + Skill to record and query shared state while it works.
 
 ### Continue in another agent
 
