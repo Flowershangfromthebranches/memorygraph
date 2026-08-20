@@ -35,10 +35,6 @@ flowchart LR
 
 MemoryGraph 是一个本地优先的跨 Agent 项目状态层。它让接班 Agent 主动拉取上一个 Agent 的最新工作、核对真实仓库状态，并从中断位置继续，而不要求上一个 Agent 主动“交班”。
 
-### 发布前隐私检查
-
-仓库只包含源代码、文档、测试夹具和示例配置。`.env`、生成的 `.memorygraph/` 状态目录、数据库、日志和备份文件均不应提交；`NEO4J_PASSWORD`、`GRAPHITI_API_KEY` 等凭据只从进程环境或密钥管理器读取。发布前请同时检查工作树和 Git 历史，确认没有用户名、主目录路径、会话导出、私钥或真实凭据。
-
 ### 任意 Agent，而不是 Agent 白名单
 
 MemoryGraph 不依赖某个模型厂商，也不区分桌面端、CLI、IDE 插件或自定义 harness。兼容性由协议能力决定：
@@ -360,10 +356,6 @@ MemoryGraph 是独立实现。协议、接口、布局和集成边界参考了�
 ## English
 
 MemoryGraph is a local-first shared project-state layer for coding agents. A receiving agent pulls the latest evidence-backed state, verifies it against the real repository, and continues without requiring the previous agent to create an explicit handoff.
-
-### Release privacy checklist
-
-The repository contains source code, documentation, fixtures, and placeholder configuration only. Do not commit `.env` files, generated `.memorygraph/` state, databases, logs, or backups. Keep `NEO4J_PASSWORD`, `GRAPHITI_API_KEY`, and other credentials in the process environment or a secret manager. Before publishing, inspect both the working tree and Git history for usernames, home-directory paths, session exports, private keys, and real credentials.
 
 ### Any agent, not an agent allowlist
 
