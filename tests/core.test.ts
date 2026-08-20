@@ -103,6 +103,27 @@ describe("MemoryGraphCore", () => {
     database.close();
   });
 
+  it("keeps the compiled handoff at or below the requested token ceiling", () => {
+    const { root, database, core } = fixture();
+    for (let index = 0; index < 24; index += 1) {
+      core.remember({ cwd: root, agent: "codex", kind: "task", title: `Task ${index}`, content: `Detailed active work ${index} ${"context ".repeat(20)}` });
+    }
+    const noisySync = {
+      syncProject: () => Array.from({ length: 5 }, (_, index) => ({
+        adapterId: `adapter-${index}`,
+        sourceKey: root,
+        scanned: 100,
+        ingested: 0,
+        skipped: 100,
+        cursor: {},
+        warnings: [`${"adapter warning ".repeat(20)}${index}`],
+      })),
+    };
+    const context = new MemoryGraphCore(database, noisySync).resumeProject({ cwd: root, receivingAgent: "opencode", tokenBudget: 800 });
+    expect(context.estimatedTokens).toBeLessThanOrEqual(800);
+    database.close();
+  });
+
   it("creates a pull-based handoff with live repository evidence", () => {
     const { root, database, core } = fixture();
     core.remember({ cwd: root, agent: "codex", kind: "task", title: "Build adapter", content: "Implement the OpenCode cursor parser.", status: "active" });

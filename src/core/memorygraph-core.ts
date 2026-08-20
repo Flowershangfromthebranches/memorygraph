@@ -315,8 +315,7 @@ export class MemoryGraphCore {
     });
     const estimate = () => Math.ceil(JSON.stringify(buildContext()).length / 4);
     let truncated = false;
-    while (estimate() > requestedBudget) {
-      truncated = true;
+    const trimOneLayer = (): boolean => {
       if (recentEvents.length > 3) recentEvents = recentEvents.slice(0, Math.max(3, recentEvents.length - 3));
       else if (activeWork.length > 5) activeWork = activeWork.slice(0, Math.max(5, activeWork.length - 3));
       else if (recentDecisions.length > 3) recentDecisions = recentDecisions.slice(0, recentDecisions.length - 1);
@@ -324,9 +323,36 @@ export class MemoryGraphCore {
       else if (repository.changedFiles.length > 20) repository = { ...repository, changedFiles: repository.changedFiles.slice(0, 20) };
       else if (compiledSync.length > 0) compiledSync = [];
       else if (nextSteps.length > 3) nextSteps = nextSteps.slice(0, 3);
-      else break;
+      else return false;
+      return true;
+    };
+    while (estimate() > requestedBudget) {
+      truncated = true;
+      if (!trimOneLayer()) break;
     }
     if (truncated) warnings.push(`Context was layered and trimmed to honor the ${requestedBudget}-token budget; use search, trace, or explain for deeper history.`);
+    while (estimate() > requestedBudget && trimOneLayer()) {
+      truncated = true;
+    }
+    if (estimate() > requestedBudget) {
+      warnings.splice(0, warnings.length, `Context compacted to the ${requestedBudget}-token ceiling; retrieve details with search, trace, or explain.`);
+      compiledSync = [];
+      repository = { ...repository, changedFiles: repository.changedFiles.slice(0, 8) };
+      currentState = currentState.slice(0, 4).map((entry) => ({
+        ...entry,
+        value: entry.valueText.slice(0, 180),
+        valueText: entry.valueText.slice(0, 180),
+      }));
+      activeWork = activeWork.slice(0, 3).map((entry) => ({ ...entry, summary: entry.summary.slice(0, 180) }));
+      recentDecisions = recentDecisions.slice(0, 2).map((entry) => ({ ...entry, rationale: entry.rationale.slice(0, 180) }));
+      recentEvents = recentEvents.slice(0, 2).map((entry) => ({ ...entry, summary: entry.summary.slice(0, 180) }));
+      nextSteps = nextSteps.slice(0, 2).map((entry) => entry.slice(0, 180));
+    }
+    while (estimate() > requestedBudget && recentEvents.length > 0) recentEvents = recentEvents.slice(0, -1);
+    while (estimate() > requestedBudget && activeWork.length > 0) activeWork = activeWork.slice(0, -1);
+    while (estimate() > requestedBudget && recentDecisions.length > 0) recentDecisions = recentDecisions.slice(0, -1);
+    while (estimate() > requestedBudget && currentState.length > 0) currentState = currentState.slice(0, -1);
+    while (estimate() > requestedBudget && nextSteps.length > 0) nextSteps = nextSteps.slice(0, -1);
     const contextWithoutHandoff = buildContext();
     const estimatedTokens = Math.ceil(JSON.stringify(contextWithoutHandoff).length / 4);
     const handoffId = this.database.createHandoff({
