@@ -35,12 +35,6 @@ flowchart LR
 
 MemoryGraph 是一个本地优先的跨 Agent 项目状态层。它让接班 Agent 主动拉取上一个 Agent 的最新工作、核对真实仓库状态，并从中断位置继续，而不要求上一个 Agent 主动“交班”。
 
-产品的三个核心区别是：
-
-- **Project State，不只是 Memory**：当前事实与原始历史分开保存。
-- **Handoff，不只是 Search**：“继续”会编译成有 token 上限、可直接执行的交接上下文。
-- **Atlas，不只是 Viewer**：五种视图展示整个工作区、项目关系、时间线和 Agent 轨迹。
-
 ### 发布前隐私检查
 
 仓库只包含源代码、文档、测试夹具和示例配置。`.env`、生成的 `.memorygraph/` 状态目录、数据库、日志和备份文件均不应提交；`NEO4J_PASSWORD`、`GRAPHITI_API_KEY` 等凭据只从进程环境或密钥管理器读取。发布前请同时检查工作树和 Git 历史，确认没有用户名、主目录路径、会话导出、私钥或真实凭据。
@@ -366,12 +360,6 @@ MemoryGraph 是独立实现。协议、接口、布局和集成边界参考了�
 ## English
 
 MemoryGraph is a local-first shared project-state layer for coding agents. A receiving agent pulls the latest evidence-backed state, verifies it against the real repository, and continues without requiring the previous agent to create an explicit handoff.
-
-The product is built around three distinctions:
-
-- **Project State, not only Memory** — current truth is separate from raw history.
-- **Handoff, not only Search** — “continue” compiles bounded, task-ready context.
-- **Atlas, not only Viewer** — five views explain the workspace, projects, timeline, and agent trail.
 
 ### Release privacy checklist
 
