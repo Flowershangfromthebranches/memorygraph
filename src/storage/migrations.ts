@@ -187,4 +187,9 @@ export const MIGRATIONS: readonly string[] = [
     updated_at TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE events ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE events ADD COLUMN excluded_reason TEXT;
+  CREATE INDEX IF NOT EXISTS idx_events_project_included_time ON events(project_id, excluded, occurred_at DESC);
+  `,
 ];

@@ -588,7 +588,7 @@ export class MemoryDatabase {
   }> {
     return this.db.prepare(
       `SELECT id, agent_id, kind, summary, occurred_at, source_uri
-       FROM events WHERE project_id = ? ORDER BY occurred_at DESC LIMIT ?`,
+       FROM events WHERE project_id = ? AND excluded = 0 ORDER BY occurred_at DESC LIMIT ?`,
     ).all(projectId, limit).map((row) => ({
       id: text(row, "id"),
       agentId: text(row, "agent_id"),
@@ -600,7 +600,16 @@ export class MemoryDatabase {
   }
 
   allEvents(projectId: string): MemoryEvent[] {
-    return this.db.prepare("SELECT * FROM events WHERE project_id = ? ORDER BY occurred_at, ingested_at, id").all(projectId).map((row) => this.eventFromRow(row));
+    return this.db.prepare("SELECT * FROM events WHERE project_id = ? AND excluded = 0 ORDER BY occurred_at, ingested_at, id").all(projectId).map((row) => this.eventFromRow(row));
+  }
+
+  excludeEventsByEvidencePath(path: string, reason: string): number {
+    const result = this.db.prepare(
+      `UPDATE events SET excluded = 1, excluded_reason = ?
+       WHERE id IN (SELECT event_id FROM evidence WHERE json_extract(locator_json, '$.path') = ?)
+         AND excluded = 0`,
+    ).run(reason, path) as { changes?: number };
+    return result.changes ?? 0;
   }
 
   listSessions(projectId: string): Array<{
@@ -742,7 +751,7 @@ export class MemoryDatabase {
 
   previousAgent(projectId: string, excludingAgent: string): string | null {
     const row = this.db.prepare(
-      `SELECT agent_id FROM events WHERE project_id = ? AND agent_id != ? AND kind != 'handoff' ORDER BY occurred_at DESC LIMIT 1`,
+      `SELECT agent_id FROM events WHERE project_id = ? AND agent_id != ? AND kind != 'handoff' AND excluded = 0 ORDER BY occurred_at DESC LIMIT 1`,
     ).get(projectId, excludingAgent);
     return row ? text(row, "agent_id") : null;
   }
@@ -756,7 +765,7 @@ export class MemoryDatabase {
               snippet(events_fts, 2, '[', ']', ' … ', 16) AS snippet,
               bm25(events_fts) AS rank
        FROM events_fts JOIN events e ON e.id = events_fts.event_id
-       WHERE events_fts MATCH ? AND events_fts.project_id = ?
+       WHERE events_fts MATCH ? AND events_fts.project_id = ? AND e.excluded = 0
        ORDER BY rank LIMIT ?`,
     ).all(ftsQuery, projectId, safeLimit);
     const nodeHits = this.db.prepare(
@@ -846,7 +855,7 @@ export class MemoryDatabase {
     for (const row of pending) {
       const events = this.db.prepare(
         `SELECT summary, occurred_at FROM events
-         WHERE project_id = ? AND agent_id = ? AND kind != 'handoff' AND occurred_at > ?
+         WHERE project_id = ? AND agent_id = ? AND kind != 'handoff' AND excluded = 0 AND occurred_at > ?
          ORDER BY occurred_at LIMIT 50`,
       ).all(projectId, text(row, "receiving_agent"), text(row, "created_at"));
       if (events.length === 0) continue;

@@ -69,8 +69,14 @@ export class CodexAdapter implements AgentAdapter {
       const first = readFirstJsonObject(path);
       const payload = recordObject(first?.payload);
       const cwd = typeof payload?.cwd === "string" ? payload.cwd : null;
+      const source = recordObject(payload?.source);
+      if (payload?.thread_source === "subagent" || source?.subagent !== undefined) {
+        this.database.excludeEventsByEvidencePath(path, "Codex internal subagent session excluded from project memory");
+        result.skipped += 1;
+        continue;
+      }
       if (!cwd || !sessionMatchesProject(path, cwd, project.primaryRoot)) { result.skipped += 1; continue; }
-      const externalId = typeof payload?.session_id === "string" ? payload.session_id : typeof payload?.id === "string" ? payload.id : hash(path).slice(0, 24);
+      const externalId = typeof payload?.id === "string" ? payload.id : typeof payload?.session_id === "string" ? payload.session_id : hash(path).slice(0, 24);
       const startedAt = typeof payload?.timestamp === "string" ? payload.timestamp : new Date(statSync(path).birthtimeMs).toISOString();
       const sourceKey = path;
       const cursor = this.database.getCursor(this.id, sourceKey);

@@ -36,17 +36,22 @@ describe("agent adapters", () => {
     mkdirSync(dateDirectory, { recursive: true });
     const source = join(dateDirectory, "rollout-test.jsonl");
     const records = [
-      { timestamp: "2026-08-20T10:00:00.000Z", type: "session_meta", payload: { cwd: projectRoot, session_id: "codex-session", timestamp: "2026-08-20T10:00:00.000Z" } },
+      { timestamp: "2026-08-20T10:00:00.000Z", type: "session_meta", payload: { cwd: projectRoot, id: "codex-session", session_id: "codex-session", thread_source: "user", timestamp: "2026-08-20T10:00:00.000Z" } },
       { timestamp: "2026-08-20T10:01:00.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Implemented the event store." }] } },
       { timestamp: "2026-08-20T10:02:00.000Z", type: "response_item", payload: { type: "custom_tool_call", name: "exec_command", call_id: "call-1", input: { cmd: "cat .env", authorization_token: "secret-value" } } },
     ];
     writeFileSync(source, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+    writeFileSync(join(dateDirectory, "rollout-subagent.jsonl"), `${[
+      { timestamp: "2026-08-20T10:00:00.000Z", type: "session_meta", payload: { cwd: projectRoot, id: "guardian-session", session_id: "codex-session", thread_source: "subagent", source: { subagent: { other: "guardian" } } } },
+      { timestamp: "2026-08-20T10:03:00.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "{\"risk_level\":\"low\"}" }] } },
+    ].map((record) => JSON.stringify(record)).join("\n")}\n`);
 
     database.setPrivacyPolicy({ projectId: project.projectId, storeMessageContent: false, excludedPathPatterns: [".env"] });
     const adapter = new CodexAdapter(database, sessionsRoot);
     expect(adapter.sync(project).ingested).toBe(2);
     expect(adapter.sync(project).ingested).toBe(0);
     const events = database.recentEvents(project.projectId, 10);
+    expect(events.some((event) => event.summary.includes("risk_level"))).toBe(false);
     expect(events.map((event) => event.kind)).toContain("command");
     const stored = database.db.prepare("SELECT payload_json FROM events WHERE kind='command'").get() as Record<string, unknown>;
     expect(String(stored.payload_json)).toContain("[REDACTED]");
