@@ -42,8 +42,8 @@ export class GraphReplayer {
       const content = typeof payload.content === "string" ? payload.content : "";
       if (memoryKind) {
         const predicate = typeof payload.key === "string" && payload.key.trim() ? payload.key.trim() : event.summary.trim();
-        const nodeId = memoryKind === "fact"
-          ? `fact:${projectId}:${hash(predicate).slice(0, 20)}`
+        const nodeId = memoryKind === "fact" || memoryKind === "state"
+          ? `${memoryKind}:${projectId}:${hash(predicate).slice(0, 20)}`
           : `${memoryKind}:${projectId}:${hash(`${event.summary}\0${content}`).slice(0, 20)}`;
         this.database.upsertNode({ id: nodeId, projectId, type: memoryNodeType(memoryKind), label: event.summary, status: status(payload.status), summary: content, attributes: { kind: memoryKind, agent: event.agentId }, validFrom: event.occurredAt, sourceEventId: event.id });
         this.database.addEdge({ id: `edge:${projectId}:${nodeId}:contains`, projectId, sourceNodeId: `project:${projectId}`, targetNodeId: nodeId, type: "CONTAINS", status: status(payload.status), validFrom: event.occurredAt, sourceEventId: event.id });
@@ -78,6 +78,7 @@ export class GraphReplayer {
       this.database.addEdge({ id: `edge:${taskNode}:${agentNode}:modified-by`, projectId, sourceNodeId: taskNode, targetNodeId: agentNode, type: "MODIFIED_BY", validFrom: event.occurredAt, sourceEventId: event.id });
     }
 
+    let repositoryProjected = false;
     for (const handoff of handoffs) {
       const context = object(handoff.context);
       const event = events.find((candidate) => object(candidate.payload)?.handoffId === handoff.id);
@@ -92,13 +93,14 @@ export class GraphReplayer {
         ...(event ? { sourceEventId: event.id } : {}),
       });
       const repository = context ? object(context.repository) : null;
-      if (repository && typeof repository.root === "string" && typeof repository.capturedAt === "string" && Array.isArray(repository.changedFiles)) {
+      if (!repositoryProjected && repository && typeof repository.root === "string" && typeof repository.capturedAt === "string" && Array.isArray(repository.changedFiles)) {
         this.database.projectRepositoryGraph({
           project,
           snapshot: repository as unknown as RepositorySnapshot,
           agentId: typeof handoff.previousAgent === "string" ? handoff.previousAgent : null,
           ...(event ? { sourceEventId: event.id } : {}),
         });
+        repositoryProjected = true;
       }
     }
     const graph = this.database.graph(projectId);

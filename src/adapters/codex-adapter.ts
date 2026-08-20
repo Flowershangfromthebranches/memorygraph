@@ -63,6 +63,7 @@ export class CodexAdapter implements AgentAdapter {
   sync(project: ProjectIdentity): AdapterSyncResult {
     const result: AdapterSyncResult = { adapterId: this.id, sourceKey: this.sessionsRoot, scanned: 0, ingested: 0, skipped: 0, cursor: {}, warnings: [] };
     const privacy = this.database.getPrivacyPolicy(project.projectId);
+    this.database.excludeEventsByRoles(project.projectId, this.id, ["developer", "system"], "Codex control-plane role excluded from project memory");
     const files = collectJsonl(this.sessionsRoot);
     for (const path of files) {
       result.scanned += 1;
@@ -104,6 +105,7 @@ export class CodexAdapter implements AgentAdapter {
           const body = extractText(item.content);
           if (!body) continue;
           const role = typeof item.role === "string" ? item.role : "agent";
+          if (role !== "user" && role !== "assistant") continue;
           const protectedContent = protectedMessage(role, body, privacy);
           kind = "message";
           summaryText = protectedContent.summary;

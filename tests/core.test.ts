@@ -71,6 +71,7 @@ describe("MemoryGraphCore", () => {
     expect(state.state).toHaveLength(1);
     expect(state.state[0]?.value).toBe("sqlite+neo4j");
     expect(database.stateHistory(state.project.projectId)).toHaveLength(2);
+    expect(database.graph(state.project.projectId).nodes.filter((node) => node.type === "State")).toHaveLength(1);
     expect(state.decisions[0]?.title).toBe("Use SQLite locally");
     expect(state.decisions).toHaveLength(1);
     expect(core.search(root, "SQLite").hits.length).toBeGreaterThan(0);
@@ -91,6 +92,7 @@ describe("MemoryGraphCore", () => {
     const history = database.listFacts(project.projectId, 10, true);
     expect(history).toHaveLength(2);
     expect(history[1]?.validTo).toBe("2026-08-20T11:00:00.000Z");
+    expect(database.graph(project.projectId).nodes.filter((node) => node.type === "Fact")).toHaveLength(1);
     expect(core.resumeProject({ cwd: root, receivingAgent: "opencode", tokenBudget: 2_000 }).recentFacts[0]?.objectText).toBe("Neo4j 2026.07");
     database.close();
   });
@@ -159,6 +161,22 @@ describe("MemoryGraphCore", () => {
     database.close();
   });
 
+  it("ranks actionable graph nodes ahead of matching tool telemetry", () => {
+    const { root, database, core } = fixture();
+    const remembered = core.remember({ cwd: root, agent: "codex", kind: "task", title: "Actionable release needle", content: "Finish the release needle." });
+    database.appendEvent({
+      projectId: remembered.project.projectId,
+      agentId: "codex",
+      kind: "tool_call",
+      sourceUri: "test://tool",
+      dedupeKey: "tool-telemetry-ranking",
+      summary: "Tool: exec",
+      payload: { command: "actionable release needle actionable release needle" },
+    });
+    expect(database.search(remembered.project.projectId, "actionable release needle")[0]?.kind).toBe("node");
+    database.close();
+  });
+
   it("rebuilds the local graph projection from durable records", () => {
     const { root, database, core } = fixture();
     const remembered = core.remember({ cwd: root, agent: "codex", kind: "task", title: "Replay task", content: "Rebuild this node." });
@@ -208,6 +226,7 @@ describe("MemoryGraphCore", () => {
     expect(context.repository.changedFiles).toContain("work-in-progress.txt");
     expect(context.nextSteps[0]).toContain("Build adapter");
     expect(context.handoffId).toMatch(/^handoff_/u);
+    rmSync(join(root, "work-in-progress.txt"));
     core.remember({
       cwd: root,
       agent: "opencode",
@@ -221,6 +240,7 @@ describe("MemoryGraphCore", () => {
     expect(completed?.outcomeStatus).toBe("continued");
     const projectNode = database.graph(context.project.projectId).nodes.find((node) => node.type === "Project");
     expect(projectNode?.validFrom).toBe(context.project.createdAt);
+    expect(database.graph(context.project.projectId).nodes.some((node) => node.type === "File" && node.label === "work-in-progress.txt")).toBe(false);
     database.close();
   });
 });

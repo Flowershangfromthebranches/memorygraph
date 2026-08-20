@@ -51,6 +51,7 @@ describe("agent adapters", () => {
     const records = [
       { timestamp: "2026-08-20T10:00:00.000Z", type: "session_meta", payload: { cwd: projectRoot, id: "codex-session", session_id: "codex-session", thread_source: "user", timestamp: "2026-08-20T10:00:00.000Z" } },
       { timestamp: "2026-08-20T10:01:00.000Z", type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Implemented the event store." }] } },
+      { timestamp: "2026-08-20T10:01:30.000Z", type: "response_item", payload: { type: "message", role: "developer", content: [{ type: "input_text", text: "Internal control instructions" }] } },
       { timestamp: "2026-08-20T10:02:00.000Z", type: "response_item", payload: { type: "custom_tool_call", name: "exec_command", call_id: "call-1", input: { cmd: "cat .env", authorization_token: "secret-value" } } },
     ];
     writeFileSync(source, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
@@ -65,6 +66,7 @@ describe("agent adapters", () => {
     expect(adapter.sync(project).ingested).toBe(0);
     const events = database.recentEvents(project.projectId, 10);
     expect(events.some((event) => event.summary.includes("risk_level"))).toBe(false);
+    expect(events.some((event) => event.summary.includes("Internal control instructions"))).toBe(false);
     expect(events.map((event) => event.kind)).toContain("command");
     const stored = database.db.prepare("SELECT payload_json FROM events WHERE kind='command'").get() as Record<string, unknown>;
     expect(String(stored.payload_json)).toContain("[REDACTED]");

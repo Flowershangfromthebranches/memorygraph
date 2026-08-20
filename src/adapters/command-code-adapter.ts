@@ -34,6 +34,7 @@ export class CommandCodeAdapter implements AgentAdapter {
   sync(project: ProjectIdentity): AdapterSyncResult {
     const result: AdapterSyncResult = { adapterId: this.id, sourceKey: this.projectsRoot, scanned: 0, ingested: 0, skipped: 0, cursor: {}, warnings: [] };
     const privacy = this.database.getPrivacyPolicy(project.projectId);
+    this.database.excludeEventsByRoles(project.projectId, this.id, ["developer", "system"], "Control-plane role excluded from project memory");
     for (const path of files(this.projectsRoot)) {
       result.scanned += 1;
       const meta = readFirstJsonObject(path);
@@ -58,6 +59,7 @@ export class CommandCodeAdapter implements AgentAdapter {
           let summaryText = "";
           let eventPayload: Record<string, unknown> = {};
           if (part.type === "text" && typeof part.text === "string") {
+            if (role !== "user" && role !== "assistant") continue;
             const protectedContent = protectedMessage(role, part.text, privacy);
             kind = "message"; summaryText = protectedContent.summary; eventPayload = protectedContent.payload;
           } else if (part.type === "tool_use") {

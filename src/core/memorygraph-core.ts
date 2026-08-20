@@ -175,8 +175,8 @@ export class MemoryGraphCore {
     }
 
     const nodeId = this.database.upsertNode({
-      id: input.kind === "fact"
-        ? `fact:${project.projectId}:${hash(input.key?.trim() || input.title.trim()).slice(0, 20)}`
+      id: input.kind === "fact" || input.kind === "state"
+        ? `${input.kind}:${project.projectId}:${hash(input.key?.trim() || input.title.trim()).slice(0, 20)}`
         : `${input.kind}:${project.projectId}:${hash(`${input.title}\0${input.content}`).slice(0, 20)}`,
       projectId: project.projectId,
       type: nodeTypeFor(input.kind),

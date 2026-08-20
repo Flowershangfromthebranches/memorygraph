@@ -49,6 +49,7 @@ export class WorkBuddyAdapter implements AgentAdapter {
   sync(project: ProjectIdentity): AdapterSyncResult {
     const result: AdapterSyncResult = { adapterId: this.id, sourceKey: this.root, scanned: 0, ingested: 0, skipped: 0, cursor: {}, warnings: [] };
     const privacy = this.database.getPrivacyPolicy(project.projectId);
+    this.database.excludeEventsByRoles(project.projectId, this.id, ["developer", "system"], "Control-plane role excluded from project memory");
     for (const path of projectFiles(this.root)) {
       result.scanned += 1;
       const first = readFirstJsonObject(path);
@@ -70,6 +71,7 @@ export class WorkBuddyAdapter implements AgentAdapter {
           const body = extractText(record.content);
           if (!body) continue;
           const role = typeof record.role === "string" ? record.role : "agent";
+          if (role !== "user" && role !== "assistant") continue;
           const protectedContent = protectedMessage(role, body, privacy);
           kind = "message"; summaryText = protectedContent.summary; payload = { ...protectedContent.payload, status: record.status ?? null };
         } else if (type === "function_call") {

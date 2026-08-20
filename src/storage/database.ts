@@ -66,6 +66,20 @@ function containsPath(root: string, candidate: string): boolean {
   return relation === "" || (relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
 }
 
+function eventSearchBoost(kind: string): number {
+  const boosts: Record<string, number> = {
+    decision: 4,
+    state_change: 4,
+    issue: 4,
+    handoff: 3,
+    memory: 2,
+    message: 1,
+    command: -1,
+    tool_call: -2,
+  };
+  return boosts[kind] ?? 0;
+}
+
 function graphOutput(nodeRows: Row[], edgeRows: Row[]) {
   return {
     nodes: nodeRows.map((row) => ({
@@ -606,6 +620,16 @@ export class MemoryDatabase {
     sourceEventId?: string;
   }): void {
     const projectNode = `project:${input.project.projectId}`;
+    const currentFileIds = new Set(input.snapshot.changedFiles.slice(0, 200).map((path) => `file:${input.project.projectId}:${createHash("sha256").update(path).digest("hex").slice(0, 24)}`));
+    const previouslyDirty = this.db.prepare(
+      "SELECT id FROM nodes WHERE project_id=? AND type='File' AND valid_to IS NULL AND json_extract(attributes_json, '$.uncommitted')=1",
+    ).all(input.project.projectId);
+    for (const row of previouslyDirty) {
+      const id = text(row, "id");
+      if (currentFileIds.has(id)) continue;
+      this.db.prepare("UPDATE nodes SET status='complete', valid_to=?, updated_at=? WHERE id=?").run(input.snapshot.capturedAt, now(), id);
+      this.db.prepare("UPDATE edges SET valid_to=? WHERE valid_to IS NULL AND (source_node_id=? OR target_node_id=?)").run(input.snapshot.capturedAt, id, id);
+    }
     if (input.snapshot.head) {
       const commitNode = `commit:${input.project.projectId}:${input.snapshot.head}`;
       this.upsertNode({
@@ -726,6 +750,17 @@ export class MemoryDatabase {
        WHERE id IN (SELECT event_id FROM evidence WHERE json_extract(locator_json, '$.path') = ?)
          AND excluded = 0`,
     ).run(reason, path) as { changes?: number };
+    return result.changes ?? 0;
+  }
+
+  excludeEventsByRoles(projectId: string, agentId: string, roles: string[], reason: string): number {
+    if (roles.length === 0) return 0;
+    const placeholders = roles.map(() => "?").join(",");
+    const result = this.db.prepare(
+      `UPDATE events SET excluded=1, excluded_reason=?
+       WHERE project_id=? AND agent_id=? AND kind='message' AND excluded=0
+         AND json_extract(payload_json, '$.role') IN (${placeholders})`,
+    ).run(reason, projectId, agentId, ...roles) as { changes?: number };
     return result.changes ?? 0;
   }
 
@@ -892,7 +927,7 @@ export class MemoryDatabase {
               bm25(nodes_fts) AS rank
        FROM nodes_fts JOIN nodes n ON n.id = nodes_fts.node_id
        LEFT JOIN events e ON e.id = n.source_event_id
-       WHERE nodes_fts MATCH ? AND nodes_fts.project_id = ? AND (n.source_event_id IS NULL OR e.excluded = 0)
+       WHERE nodes_fts MATCH ? AND nodes_fts.project_id = ? AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded = 0)
        ORDER BY rank LIMIT ?`,
     ).all(ftsQuery, projectId, safeLimit);
     return [
@@ -901,7 +936,7 @@ export class MemoryDatabase {
         kind: "event",
         title: `${text(row, "kind")}: ${text(row, "summary")}`,
         snippet: text(row, "snippet"),
-        score: -number(row, "rank"),
+        score: -number(row, "rank") + eventSearchBoost(text(row, "kind")),
         occurredAt: text(row, "occurred_at"),
         sourceUri: text(row, "source_uri"),
       })),
@@ -910,7 +945,7 @@ export class MemoryDatabase {
         kind: "node",
         title: `${text(row, "type")}: ${text(row, "label")}`,
         snippet: text(row, "snippet") || text(row, "summary"),
-        score: -number(row, "rank"),
+        score: -number(row, "rank") + 5,
         occurredAt: text(row, "updated_at"),
       })),
     ].sort((a, b) => b.score - a.score).slice(0, safeLimit);

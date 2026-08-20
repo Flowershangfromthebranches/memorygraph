@@ -24,6 +24,7 @@ export class OpenCodeAdapter implements AgentAdapter {
   sync(project: ProjectIdentity): AdapterSyncResult {
     const result: AdapterSyncResult = { adapterId: this.id, sourceKey: this.sourcePath, scanned: 0, ingested: 0, skipped: 0, cursor: {}, warnings: [] };
     const privacy = this.database.getPrivacyPolicy(project.projectId);
+    this.database.excludeEventsByRoles(project.projectId, this.id, ["developer", "system"], "Control-plane role excluded from project memory");
     if (!existsSync(this.sourcePath)) { result.warnings.push("OpenCode database not found."); return result; }
     const source = new BetterSqlite3(this.sourcePath, { readonly: true, fileMustExist: true });
     try {
@@ -69,6 +70,7 @@ export class OpenCodeAdapter implements AgentAdapter {
         let summaryText = "";
         let payload: Record<string, unknown> = {};
         if (type === "text" && typeof part.text === "string") {
+          if (role !== "user" && role !== "assistant") { result.skipped += 1; continue; }
           const protectedContent = protectedMessage(role, part.text, privacy);
           kind = "message"; summaryText = protectedContent.summary; payload = protectedContent.payload;
         } else if (type === "tool") {
