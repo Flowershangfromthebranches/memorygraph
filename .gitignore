@@ -1,0 +1,16 @@
+node_modules/
+dist/
+web-dist/
+coverage/
+playwright-report/
+test-results/
+.env
+.DS_Store
+*.log
+*.db
+*.db-shm
+*.db-wal
+.memorygraph-data/
+.memorygraph-dev/
+src-tauri/target/
+src-tauri/gen/

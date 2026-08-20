@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MemoryGraph Atlas",
+  "version": "0.1.0",
+  "identifier": "app.memorygraph.atlas",
+  "build": {
+    "beforeDevCommand": "npm run dev:web",
+    "devUrl": "http://127.0.0.1:4766",
+    "beforeBuildCommand": "npm run build:web",
+    "frontendDist": "../web-dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:4765"
+    },
+    "windows": [
+      {
+        "title": "MemoryGraph Atlas",
+        "width": 1360,
+        "height": 850,
+        "minWidth": 980,
+        "minHeight": 650,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Shared project state and handoff atlas for coding agents",
+    "longDescription": "MemoryGraph Atlas visualizes evidence-backed project state, temporal memory, and cross-agent handoffs from the local MemoryGraph Core.",
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}
+

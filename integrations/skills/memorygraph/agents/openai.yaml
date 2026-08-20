@@ -1,0 +1,12 @@
+interface:
+  display_name: "MemoryGraph"
+  short_description: "Resume shared project state across coding agents"
+  default_prompt: "Use $memorygraph to resume the current project from the latest shared state."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "memorygraph"
+      description: "Local MemoryGraph MCP server"
+      transport: "stdio"
+policy:
+  allow_implicit_invocation: true
