@@ -68,7 +68,7 @@ export function GraphCanvas({ data, onSelect, agentFilter, atlas = false }: {
       forceAtlas2.assign(graph, { iterations: Math.min(180, 50 + graph.order * 3), settings: { ...settings, gravity: 0.08, scalingRatio: atlas ? 8 : 4 } });
     }
     const renderer = new Sigma(graph, container.current, {
-      renderEdgeLabels: graph.size < 80,
+      renderEdgeLabels: graph.size <= 18,
       labelDensity: 1,
       labelGridCellSize: 90,
       labelRenderedSizeThreshold: 5,

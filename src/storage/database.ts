@@ -945,7 +945,7 @@ export class MemoryDatabase {
         kind: "node",
         title: `${text(row, "type")}: ${text(row, "label")}`,
         snippet: text(row, "snippet") || text(row, "summary"),
-        score: -number(row, "rank") + 5,
+        score: -number(row, "rank") + 25,
         occurredAt: text(row, "updated_at"),
       })),
     ].sort((a, b) => b.score - a.score).slice(0, safeLimit);
