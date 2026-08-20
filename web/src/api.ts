@@ -19,6 +19,7 @@ export const api = {
   events: (projectId: string) => request<{ project: Project; events: TimelineEvent[] }>(`/api/projects/${encodeURIComponent(projectId)}/timeline`),
   handoffs: (projectId: string) => request<{ project: Project; handoffs: Handoff[] }>(`/api/projects/${encodeURIComponent(projectId)}/handoffs`),
   evidence: (nodeId: string) => request<{ evidence: Evidence[] }>(`/api/nodes/${encodeURIComponent(nodeId)}/evidence`),
+  neighborhood: (nodeId: string) => request<GraphData>(`/api/nodes/${encodeURIComponent(nodeId)}/neighborhood`),
   diff: (projectId: string, from: string, to: string) => request<MemoryDiff>(`/api/projects/${encodeURIComponent(projectId)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   resume: (cwd: string, receivingAgent: string) => request<Record<string, unknown>>("/api/resume", {
     method: "POST",

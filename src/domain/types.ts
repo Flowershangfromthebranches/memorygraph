@@ -5,6 +5,7 @@ export const NODE_TYPES = [
   "Requirement",
   "Task",
   "Decision",
+  "Fact",
   "Issue",
   "Artifact",
   "File",
@@ -156,6 +157,19 @@ export interface RepositorySnapshot {
   error?: string;
 }
 
+export interface ProjectFact {
+  id: string;
+  projectId: string;
+  subject: string;
+  predicate: string;
+  objectText: string;
+  confidence: number;
+  status: EntityStatus;
+  validFrom: string;
+  validTo: string | null;
+  sourceEventId: string;
+}
+
 export interface ResumeContext {
   project: ProjectIdentity;
   receivingAgent: string;
@@ -183,6 +197,7 @@ export interface ResumeContext {
     rationale: string;
     decidedAt: string;
   }>;
+  recentFacts: ProjectFact[];
   recentEvents: Array<{
     id: string;
     agentId: string;
@@ -191,6 +206,7 @@ export interface ResumeContext {
     occurredAt: string;
     sourceUri: string;
   }>;
+  selectionReasons: Record<string, string>;
   sync: AdapterSyncResult[];
   nextSteps: string[];
   handoffId: string;

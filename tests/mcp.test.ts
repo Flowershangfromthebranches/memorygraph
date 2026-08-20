@@ -51,9 +51,13 @@ describe("MemoryGraph MCP", () => {
       },
     });
     expect(remembered.isError).not.toBe(true);
+    const rememberedProject = (remembered.structuredContent as { project?: { projectId?: string } } | undefined)?.project;
+    expect(rememberedProject?.projectId).toBeTruthy();
 
-    const state = await client.callTool({ name: "project_state", arguments: { cwd: root } });
+    const state = await client.callTool({ name: "project_state", arguments: { project_id: rememberedProject!.projectId } });
     expect(JSON.stringify(state)).toContain("Memory Core");
+    const resumed = await client.callTool({ name: "resume_project", arguments: { project_id: rememberedProject!.projectId, receiving_agent: "opencode", token_budget: 1_500 } });
+    expect(resumed.isError).not.toBe(true);
 
     await client.close();
     await server.close();

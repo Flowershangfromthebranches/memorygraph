@@ -18,7 +18,7 @@ The shared object is project state, not chat history. Native agent memories rema
 
 - Stable project UUIDs with multiple repository roots and move/clone resilience.
 - Append-only raw event store for sessions, messages, tool calls, commands, file changes, commits, notes, and checkpoints.
-- Controlled ontology: Workspace, Project, Workstream, Requirement, Task, Decision, Issue, Artifact, File, Commit, Concept, Agent, Session, Milestone, State, and Handoff.
+- Controlled ontology: Workspace, Project, Workstream, Requirement, Task, Decision, Fact, Issue, Artifact, File, Commit, Concept, Agent, Session, Milestone, State, and Handoff.
 - Temporal facts and state transitions with `valid_from`, `valid_to`, supersession, confidence, and source evidence.
 - SQLite-backed source of truth, FTS search, replayable graph projection, optional Neo4j projection, and optional Graphiti semantic enrichment.
 - Memory Diff between two points in time.
@@ -68,4 +68,3 @@ The goal is complete only when all of the following are true:
 6. MCP is exercised with a real stdio client and the HTTP/UI path is exercised in a real browser.
 7. Desktop packages are built and smoke-tested on the available host; other platforms have reproducible CI builds.
 8. Unit, integration, end-to-end, accessibility, performance, and recovery suites pass.
-

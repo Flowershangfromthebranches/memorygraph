@@ -11,7 +11,7 @@ import { createDefaultAdapterRegistry } from "./adapters/registry.js";
 import { createMemoryGraphHttpServer } from "./api/http-server.js";
 import { loadConfig } from "./config.js";
 import { MemoryGraphCore } from "./core/memorygraph-core.js";
-import { EDGE_TYPES, type EdgeType } from "./domain/types.js";
+import { EDGE_TYPES, type EdgeType, type EntityStatus } from "./domain/types.js";
 import { buildMcpServer } from "./mcp/server.js";
 import { Neo4jProjection } from "./graph/neo4j-projection.js";
 import { GraphReplayer } from "./graph/replayer.js";
@@ -38,7 +38,7 @@ function commandAvailable(command: string): boolean {
 }
 
 function printHelp(): void {
-  process.stdout.write(`MemoryGraph\n\nUsage:\n  memorygraph init [cwd] [--name NAME] [--data-dir DIR]\n  memorygraph remember [cwd] --agent AGENT --kind KIND --title TITLE --content TEXT [--key KEY] [--value JSON]\n  memorygraph link <source-cwd> <target-cwd> --relation RELATION\n  memorygraph privacy [cwd] [--store-message-content true|false] [--max-message-chars N] [--exclude PATTERN]\n  memorygraph sync [cwd] [--data-dir DIR]\n  memorygraph resume [cwd] --agent AGENT [--token-budget N] [--data-dir DIR]\n  memorygraph replay [cwd] [--data-dir DIR]\n  memorygraph export [cwd] --output FILE [--data-dir DIR]\n  memorygraph project-neo4j [cwd] [--data-dir DIR]\n  memorygraph backup --output FILE [--data-dir DIR]\n  memorygraph restore --input FILE [--data-dir DIR]\n  memorygraph service <install|status|uninstall> [--data-dir DIR]\n  memorygraph integration <install|status|uninstall> --agent <codex|opencode|command-code|workbuddy|trae|all>\n  memorygraph serve [--host HOST] [--port PORT] [--data-dir DIR]\n  memorygraph mcp [--data-dir DIR]\n  memorygraph doctor [--data-dir DIR]\n`);
+  process.stdout.write(`MemoryGraph\n\nUsage:\n  memorygraph init [cwd] [--name NAME] [--data-dir DIR]\n  memorygraph root add <root> --project-id ID [--primary]\n  memorygraph remember [cwd] --agent AGENT --kind KIND --title TITLE --content TEXT [--key KEY] [--value JSON] [--status STATUS]\n  memorygraph link <source-cwd> <target-cwd> --relation RELATION\n  memorygraph privacy [cwd] [--store-message-content true|false] [--max-message-chars N] [--exclude PATTERN]\n  memorygraph sync [cwd] [--data-dir DIR]\n  memorygraph resume [cwd] --agent AGENT [--project-id ID] [--token-budget N] [--data-dir DIR]\n  memorygraph replay [cwd] [--data-dir DIR]\n  memorygraph export [cwd] --output FILE [--data-dir DIR]\n  memorygraph project-neo4j [cwd] [--data-dir DIR]\n  memorygraph backup --output FILE [--data-dir DIR]\n  memorygraph restore --input FILE [--data-dir DIR]\n  memorygraph service <install|status|uninstall> [--data-dir DIR]\n  memorygraph integration <install|status|uninstall> --agent <codex|opencode|command-code|workbuddy|trae|all>\n  memorygraph serve [--host HOST] [--port PORT] [--data-dir DIR]\n  memorygraph mcp [--data-dir DIR]\n  memorygraph doctor [--data-dir DIR]\n`);
 }
 
 async function main(): Promise<void> {
@@ -64,12 +64,24 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === "root") {
+    if (args[1] !== "add" || !args[2]) throw new Error("Usage: memorygraph root add <root> --project-id ID [--primary]");
+    const projectId = option(args, "--project-id");
+    if (!projectId) throw new Error("--project-id is required");
+    process.stdout.write(`${JSON.stringify(core.attachProjectRoot(projectId, resolve(args[2]), args.includes("--primary")), null, 2)}\n`);
+    database.close();
+    return;
+  }
+
   if (command === "resume") {
+    const projectId = option(args, "--project-id");
     const cwd = resolve(args[1] && !args[1].startsWith("--") ? args[1] : process.cwd());
     const agent = option(args, "--agent");
     if (!agent) throw new Error("--agent is required");
     const tokenBudgetText = option(args, "--token-budget");
-    const context = core.resumeProject({ cwd, receivingAgent: agent, ...(tokenBudgetText ? { tokenBudget: Number.parseInt(tokenBudgetText, 10) } : {}) });
+    const context = projectId
+      ? core.resumeProjectById({ projectId, receivingAgent: agent, ...(tokenBudgetText ? { tokenBudget: Number.parseInt(tokenBudgetText, 10) } : {}) })
+      : core.resumeProject({ cwd, receivingAgent: agent, ...(tokenBudgetText ? { tokenBudget: Number.parseInt(tokenBudgetText, 10) } : {}) });
     process.stdout.write(`${JSON.stringify(context, null, 2)}\n`);
     database.close();
     return;
@@ -81,8 +93,10 @@ async function main(): Promise<void> {
     const kind = option(args, "--kind");
     const title = option(args, "--title");
     const content = option(args, "--content");
+    const status = option(args, "--status") ?? "active";
     if (!agent || !kind || !title || !content) throw new Error("--agent, --kind, --title, and --content are required");
     if (!["fact", "state", "decision", "issue", "task", "requirement", "milestone", "note"].includes(kind)) throw new Error(`Unsupported kind: ${kind}`);
+    if (!["planned", "active", "blocked", "complete", "deprecated"].includes(status)) throw new Error(`Unsupported status: ${status}`);
     const key = option(args, "--key");
     const valueText = option(args, "--value");
     const remembered = core.remember({
@@ -91,6 +105,7 @@ async function main(): Promise<void> {
       kind: kind as Parameters<MemoryGraphCore["remember"]>[0]["kind"],
       title,
       content,
+      status: status as EntityStatus,
       ...(key ? { key } : {}),
       ...(valueText ? { value: JSON.parse(valueText) as unknown } : {}),
       sourceUri: `manual://cli/${agent}`,
@@ -192,14 +207,30 @@ async function main(): Promise<void> {
     if (!input) throw new Error("--input is required");
     const source = resolve(input);
     if (!existsSync(source)) throw new Error(`Backup not found: ${source}`);
+    if (source === config.databasePath) throw new Error("--input must point to a backup, not the active database");
     const validation = new BetterSqlite3(source, { readonly: true, fileMustExist: true });
     try { validation.prepare("SELECT max(version) FROM schema_migrations").get(); }
     finally { validation.close(); }
+    const serviceManager = new ServiceManager();
+    const serviceStatus = serviceManager.status();
+    const cliPath = process.argv[1] ?? resolve(import.meta.dirname, "cli.js");
+    const serviceDefinition = currentServiceDefinition(cliPath, config.dataDir, config.host, config.port);
+    if (serviceStatus.installed) serviceManager.uninstall();
     database.close();
     const recovery = `${config.databasePath}.pre-restore-${new Date().toISOString().replace(/[:.]/gu, "-")}.bak`;
-    if (existsSync(config.databasePath)) renameSync(config.databasePath, recovery);
-    copyFileSync(source, config.databasePath);
-    process.stdout.write(`${JSON.stringify({ restored: config.databasePath, previousDatabase: recovery }, null, 2)}\n`);
+    try {
+      if (existsSync(config.databasePath)) renameSync(config.databasePath, recovery);
+      for (const suffix of ["-wal", "-shm"]) {
+        if (existsSync(`${config.databasePath}${suffix}`)) renameSync(`${config.databasePath}${suffix}`, `${recovery}${suffix}`);
+      }
+      copyFileSync(source, config.databasePath);
+    } catch (error) {
+      if (existsSync(recovery)) copyFileSync(recovery, config.databasePath);
+      throw error;
+    } finally {
+      if (serviceStatus.installed) serviceManager.install(serviceDefinition);
+    }
+    process.stdout.write(`${JSON.stringify({ restored: config.databasePath, previousDatabase: recovery, serviceRestarted: serviceStatus.installed }, null, 2)}\n`);
     return;
   }
 
@@ -268,18 +299,31 @@ async function main(): Promise<void> {
 
   if (command === "doctor") {
     const userDirectory = homedir();
+    const quickCheckRow = database.db.prepare("PRAGMA quick_check").get();
+    const databaseIntegrity = quickCheckRow ? String(Object.values(quickCheckRow)[0]) : "no result";
+    const commands = { git: commandAvailable("git"), docker: commandAvailable("docker"), node: commandAvailable("node") };
     const sources = {
       codex: existsSync(join(userDirectory, ".codex", "sessions")),
       opencode: existsSync(join(userDirectory, ".local", "share", "opencode")),
       commandCode: existsSync(join(userDirectory, ".commandcode")),
-      workBuddy: existsSync(join(userDirectory, "Library", "Application Support", "WorkBuddy")),
-      trae: existsSync(join(userDirectory, "Library", "Application Support", "Trae CN")),
+      workBuddy: existsSync(join(userDirectory, ".workbuddy", "projects")),
+      trae: existsSync(join(userDirectory, "Library", "Application Support", "Trae CN")) || existsSync(join(userDirectory, "Library", "Application Support", "TRAE SOLO CN")),
     };
+    const service = new ServiceManager().status();
+    const warnings = [
+      ...(!commands.docker ? ["Docker is unavailable; Neo4j projection remains optional and offline."] : []),
+      ...(!service.installed ? ["The background Core service is not installed."] : !service.running ? ["The background Core service is installed but not running."] : []),
+      ...Object.entries(sources).filter(([, available]) => !available).map(([agent]) => `${agent} passive source was not found.`),
+    ];
     process.stdout.write(`${JSON.stringify({
-      ok: true,
+      ok: databaseIntegrity === "ok" && commands.git && commands.node,
       database: config.databasePath,
-      commands: { git: commandAvailable("git"), docker: commandAvailable("docker"), node: commandAvailable("node") },
+      databaseIntegrity,
+      commands,
       adapterSources: sources,
+      uiBuilt: existsSync(resolve(join(import.meta.dirname, "..", "web-dist", "index.html"))),
+      service: { installed: service.installed, running: service.running, definitionPath: service.definitionPath },
+      warnings,
     }, null, 2)}\n`);
     database.close();
     return;

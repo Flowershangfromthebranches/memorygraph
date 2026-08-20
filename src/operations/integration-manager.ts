@@ -3,6 +3,8 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, 
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+import { stableNodeExecutable } from "./service-manager.js";
+
 export type SupportedAgent = "codex" | "opencode" | "command-code" | "workbuddy" | "trae";
 
 export interface IntegrationPaths {
@@ -112,12 +114,14 @@ export class IntegrationManager {
     const stdio = { command: command[0], args: command.slice(1), env: { MEMORYGRAPH_DATA_DIR: this.runtime.dataDir } };
     if (agent === "codex") {
       installSkill(this.runtime.skillSource, this.paths.codexSkillRoot);
+      try { this.execute("codex", ["mcp", "remove", "memorygraph"]); } catch { /* first install */ }
       this.execute("codex", ["mcp", "add", "memorygraph", "--env", `MEMORYGRAPH_DATA_DIR=${this.runtime.dataDir}`, "--", ...command]);
     } else if (agent === "opencode") {
       installSkill(this.runtime.skillSource, this.paths.opencodeSkillRoot);
       updateJsonMcp(this.paths.opencodeConfig, "mcp", { type: "local", command, enabled: true, timeout: 20_000 });
     } else if (agent === "command-code") {
       installSkill(this.runtime.skillSource, this.paths.commandCodeSkillRoot);
+      try { this.execute("commandcode", ["mcp", "remove", "--scope", "user", "memorygraph"]); } catch { /* first install */ }
       this.execute("commandcode", ["mcp", "add-json", "--scope", "user", "memorygraph", JSON.stringify({ type: "stdio", ...stdio })]);
     } else if (agent === "workbuddy") {
       installSkill(this.runtime.skillSource, this.paths.workbuddySkillRoot);
@@ -176,10 +180,9 @@ export class IntegrationManager {
 
 export function currentIntegrationRuntime(cliPath: string, dataDir: string): IntegrationRuntime {
   return {
-    nodePath: process.execPath,
+    nodePath: stableNodeExecutable(),
     cliPath: resolve(cliPath),
     dataDir: resolve(dataDir),
     skillSource: resolve(import.meta.dirname, "..", "..", "integrations", "skills", "memorygraph"),
   };
 }
-

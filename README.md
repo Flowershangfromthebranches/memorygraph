@@ -10,7 +10,7 @@ The product is built around three distinctions:
 
 ## What is implemented
 
-- SQLite event/state store, temporal validity, FTS5 search, evidence, controlled graph ontology, and Memory Diff.
+- SQLite Event/Fact/Decision/State store, temporal validity, FTS5 search, evidence, controlled graph ontology, and Memory Diff.
 - Pull-based project resolution, repository verification, layered context compiler, and handoff outcomes.
 - Six-tool MCP surface plus project resources over stdio.
 - Incremental passive adapters for Codex, OpenCode, Command Code, and WorkBuddy; safe workspace-level observation plus live MCP capture for Trae’s opaque native transcript store.
@@ -110,6 +110,8 @@ npm run desktop:build -- --bundles app
 
 The Tauri console connects to the loopback Core at `127.0.0.1:4765`. Install the Core service first for normal desktop use.
 
+Atlas queries only project nodes. Project Graph uses a state-prioritized slice capped at 2,500 nodes (configurable up to 5,000) and reports the complete node count, so long-running stores do not force-layout their entire history in one browser frame.
+
 ## Validation
 
 ```bash
@@ -120,4 +122,3 @@ NEO4J_TEST=1 NEO4J_PASSWORD=memorygraph-local npx vitest run tests/neo4j.integra
 ```
 
 See [VALIDATION.md](docs/VALIDATION.md) for the evidence categories and [SECURITY.md](docs/SECURITY.md) for privacy boundaries.
-

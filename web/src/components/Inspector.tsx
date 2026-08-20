@@ -20,11 +20,11 @@ export function Inspector({ node, evidence, projectState }: { node: GraphNode | 
       ) : projectState ? (
         <>
           <span className="eyebrow">CURRENT TRUTH</span><h2>{projectState.project.name}</h2>
-          <div className="pulse-grid"><div><b>{projectState.state.length}</b><span>state</span></div><div><b>{projectState.activeWork.length}</b><span>active</span></div><div><b>{projectState.decisions.length}</b><span>decisions</span></div></div>
+          <div className="pulse-grid"><div><b>{projectState.state.length}</b><span>state</span></div><div><b>{projectState.activeWork.length}</b><span>active</span></div><div><b>{projectState.facts.length}</b><span>facts</span></div><div><b>{projectState.decisions.length}</b><span>decisions</span></div></div>
           <section className="state-list"><h3>Project state</h3>{projectState.state.slice(0, 12).map((entry) => <article key={entry.key}><span>{entry.key}</span><strong>{entry.valueText}</strong></article>)}</section>
+          {projectState.facts.length > 0 && <section className="state-list"><h3>Current facts</h3>{projectState.facts.slice(0, 8).map((fact) => <article key={fact.id}><span>{fact.predicate} · {Math.round(fact.confidence * 100)}%</span><strong>{fact.objectText}</strong></article>)}</section>}
         </>
       ) : <div className="empty-inspector">Select a project or node to inspect its current truth and evidence.</div>}
     </aside>
   );
 }
-

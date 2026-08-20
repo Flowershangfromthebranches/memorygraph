@@ -32,6 +32,18 @@ function definitionPath(): string {
   return join(homedir(), ".memorygraph", "memorygraph-task.txt");
 }
 
+function waitForMacServiceUnload(): void {
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      execFileSync("launchctl", ["print", `gui/${userInfo().uid}/app.memorygraph.core`], { stdio: "ignore", timeout: 500 });
+      Atomics.wait(sleeper, 0, 0, 50);
+    } catch {
+      return;
+    }
+  }
+}
+
 function macPlist(definition: ServiceDefinition): string {
   const stdout = join(definition.dataDir, "logs", "core.stdout.log");
   const stderr = join(definition.dataDir, "logs", "core.stderr.log");
@@ -53,14 +65,15 @@ function macPlist(definition: ServiceDefinition): string {
 `;
 }
 
-function linuxUnit(definition: ServiceDefinition): string {
+export function renderLinuxUnit(definition: ServiceDefinition): string {
+  const quote = (value: string) => `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
   return `[Unit]
 Description=MemoryGraph local core
 After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=${definition.nodePath} ${definition.cliPath} serve --data-dir ${definition.dataDir} --host ${definition.host} --port ${definition.port}
+ExecStart=${quote(definition.nodePath)} ${quote(definition.cliPath)} serve --data-dir ${quote(definition.dataDir)} --host ${quote(definition.host)} --port ${definition.port}
 Restart=on-failure
 RestartSec=2
 
@@ -77,11 +90,12 @@ export class ServiceManager {
     if (platform() === "darwin") {
       if (existsSync(target)) {
         try { execFileSync("launchctl", ["bootout", `gui/${userInfo().uid}`, target], { stdio: "ignore" }); } catch { /* not loaded */ }
+        waitForMacServiceUnload();
       }
       writeFileSync(target, macPlist(definition), "utf8");
       execFileSync("launchctl", ["bootstrap", `gui/${userInfo().uid}`, target]);
     } else if (platform() === "linux") {
-      writeFileSync(target, linuxUnit(definition), "utf8");
+      writeFileSync(target, renderLinuxUnit(definition), "utf8");
       execFileSync("systemctl", ["--user", "daemon-reload"]);
       execFileSync("systemctl", ["--user", "enable", "--now", "memorygraph.service"]);
     } else if (platform() === "win32") {
@@ -99,6 +113,7 @@ export class ServiceManager {
     const target = definitionPath();
     if (platform() === "darwin" && existsSync(target)) {
       try { execFileSync("launchctl", ["bootout", `gui/${userInfo().uid}`, target], { stdio: "ignore" }); } catch { /* already stopped */ }
+      waitForMacServiceUnload();
       unlinkSync(target);
     } else if (platform() === "linux") {
       try { execFileSync("systemctl", ["--user", "disable", "--now", "memorygraph.service"]); } catch { /* already stopped */ }
@@ -138,7 +153,15 @@ export class ServiceManager {
   }
 }
 
-export function currentServiceDefinition(cliPath: string, dataDir: string, host: string, port: number): ServiceDefinition {
-  return { nodePath: process.execPath, cliPath: resolve(cliPath), dataDir: resolve(dataDir), host, port };
+export function stableNodeExecutable(): string {
+  const stableNodeCandidates = platform() === "darwin"
+    ? ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+    : platform() === "win32"
+      ? []
+      : ["/usr/local/bin/node", "/usr/bin/node"];
+  return stableNodeCandidates.find((candidate) => existsSync(candidate)) ?? process.execPath;
 }
 
+export function currentServiceDefinition(cliPath: string, dataDir: string, host: string, port: number): ServiceDefinition {
+  return { nodePath: stableNodeExecutable(), cliPath: resolve(cliPath), dataDir: resolve(dataDir), host, port };
+}

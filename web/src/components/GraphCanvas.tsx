@@ -10,6 +10,7 @@ const TYPE_COLORS: Record<string, string> = {
   Workstream: "#f4b942",
   Task: "#37b99c",
   Decision: "#7c68ee",
+  Fact: "#9256a6",
   Issue: "#e55757",
   State: "#2b82d9",
   Agent: "#1f2c37",
@@ -87,5 +88,10 @@ export function GraphCanvas({ data, onSelect, agentFilter, atlas = false }: {
   if (data.nodes.length === 0) {
     return <div className="empty-canvas"><span>◎</span><h2>No graph yet</h2><p>Initialize a project or ingest an agent session to grow the atlas.</p></div>;
   }
-  return <div className="graph-canvas" ref={container} aria-label={atlas ? "Workspace atlas graph" : "Project knowledge graph"} />;
+  return <>
+    <div className="graph-canvas" ref={container} role="img" aria-label={atlas ? "Workspace atlas graph" : "Project knowledge graph"} />
+    <div className="sr-only" role="region" aria-label={atlas ? "Workspace atlas nodes" : "Project graph nodes"}>
+      <ul>{data.nodes.map((node) => <li key={node.id}><button onClick={() => onSelect(node)}>{node.type}: {node.label} ({node.status})</button></li>)}</ul>
+    </div>
+  </>;
 }

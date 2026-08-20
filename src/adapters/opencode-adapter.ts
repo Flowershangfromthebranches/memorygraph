@@ -7,7 +7,7 @@ import BetterSqlite3 from "better-sqlite3";
 
 import type { AdapterSyncResult, EventKind, ProjectIdentity } from "../domain/types.js";
 import { MemoryDatabase } from "../storage/database.js";
-import { protectedMessage, sanitizeForPolicy } from "./redaction.js";
+import { protectedMessage, sanitizeForPolicy, summarize } from "./redaction.js";
 import type { AgentAdapter } from "./types.js";
 
 type Row = Record<string, unknown>;
@@ -57,7 +57,7 @@ export class OpenCodeAdapter implements AgentAdapter {
           endedAt: new Date(numeric(row, "session_updated")).toISOString(),
           sourceUri: `opencode://session/${externalId}`,
           lastCursor: `${partUpdated}:${partId}`,
-          summary: string(row, "title"),
+          summary: privacy.storeMessageContent ? summarize(string(row, "title"), 320) : "OpenCode session",
           status: "complete",
         });
         this.database.linkSessionGraph({ projectId: project.projectId, projectName: project.name, agentId: this.id, sessionId, externalId, title: string(row, "title"), startedAt });

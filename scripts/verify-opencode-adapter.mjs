@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { OpenCodeAdapter } from "../dist/adapters/opencode-adapter.js";
 import { MemoryDatabase } from "../dist/storage/database.js";
 
 const projectRoot = resolve(process.argv[2] ?? process.cwd());
-const sourcePath = resolve(process.argv[3] ?? `${process.env.USERPROFILE ?? ""}/.local/share/opencode/opencode.db`);
+const sourcePath = resolve(process.argv[3] ?? join(homedir(), ".local", "share", "opencode", "opencode.db"));
 const temporary = mkdtempSync(join(tmpdir(), "memorygraph-opencode-verification-"));
 const database = new MemoryDatabase(join(temporary, "memorygraph.db"));
 
@@ -29,4 +29,3 @@ try {
   database.close();
   rmSync(temporary, { recursive: true, force: true });
 }
-

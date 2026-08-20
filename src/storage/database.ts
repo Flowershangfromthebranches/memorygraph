@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 
 import type {
@@ -12,6 +12,7 @@ import type {
   MemoryEvent,
   MemoryEventInput,
   ProjectIdentity,
+  ProjectFact,
   ProjectPrivacyPolicy,
   RepositorySnapshot,
   SearchHit,
@@ -58,6 +59,26 @@ function parseObject(value: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(value);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
   return parsed as Record<string, unknown>;
+}
+
+function containsPath(root: string, candidate: string): boolean {
+  const relation = relative(root, candidate);
+  return relation === "" || (relation !== ".." && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
+}
+
+function graphOutput(nodeRows: Row[], edgeRows: Row[]) {
+  return {
+    nodes: nodeRows.map((row) => ({
+      id: text(row, "id"), projectId: text(row, "project_id"), type: text(row, "type"), label: text(row, "label"),
+      status: text(row, "status"), summary: text(row, "summary"), attributes: parseObject(text(row, "attributes_json")),
+      validFrom: text(row, "valid_from"), validTo: optionalText(row, "valid_to"), sourceEventId: optionalText(row, "source_event_id"),
+    })),
+    edges: edgeRows.map((row) => ({
+      id: text(row, "id"), projectId: text(row, "project_id"), source: text(row, "source_node_id"), target: text(row, "target_node_id"),
+      type: text(row, "type"), status: text(row, "status"), attributes: parseObject(text(row, "attributes_json")),
+      validFrom: text(row, "valid_from"), validTo: optionalText(row, "valid_to"), sourceEventId: optionalText(row, "source_event_id"),
+    })),
+  };
 }
 
 export class MemoryDatabase {
@@ -136,13 +157,18 @@ export class MemoryDatabase {
 
   addProjectRoot(projectId: string, root: string, primary = false): void {
     const normalized = resolve(root);
+    const existing = this.db.prepare("SELECT project_id FROM project_roots WHERE root_path = ?").get(normalized);
+    if (existing && text(existing, "project_id") !== projectId) {
+      throw new Error(`${normalized} is already attached to another MemoryGraph project`);
+    }
     const fingerprint = createHash("sha256").update(normalized).digest("hex");
     this.transaction(() => {
       if (primary) this.db.prepare("UPDATE project_roots SET is_primary = 0 WHERE project_id = ?").run(projectId);
       this.db.prepare(
         `INSERT INTO project_roots(project_id, root_path, root_fingerprint, is_primary, created_at)
          VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(root_path) DO UPDATE SET project_id=excluded.project_id, is_primary=excluded.is_primary`,
+         ON CONFLICT(root_path) DO UPDATE SET project_id=excluded.project_id,
+           is_primary=CASE WHEN excluded.is_primary=1 THEN 1 ELSE project_roots.is_primary END`,
       ).run(projectId, normalized, fingerprint, primary ? 1 : 0, now());
     });
   }
@@ -210,7 +236,7 @@ export class MemoryDatabase {
     ).all();
     for (const row of rows) {
       const root = text(row, "root_path");
-      if (normalized === root || normalized.startsWith(`${root}/`)) {
+      if (containsPath(root, normalized)) {
         return {
           projectId: text(row, "id"),
           workspaceId: text(row, "workspace_id"),
@@ -348,6 +374,10 @@ export class MemoryDatabase {
   }
 
   setState(input: StateInput): string {
+    const existing = this.db.prepare(
+      "SELECT id FROM state_entries WHERE project_id = ? AND key = ? AND source_event_id = ?",
+    ).get(input.projectId, input.key, input.sourceEventId);
+    if (existing) return text(existing, "id");
     const id = `state_${randomUUID()}`;
     const validFrom = input.validFrom ?? now();
     const updatedAt = now();
@@ -382,21 +412,104 @@ export class MemoryDatabase {
     supersedesId?: string;
     eventId: string;
   }): string {
+    const existing = this.db.prepare("SELECT id FROM decisions WHERE event_id = ?").get(input.eventId);
+    if (existing) return text(existing, "id");
     const id = `dec_${randomUUID()}`;
-    this.db.prepare(
-      `INSERT INTO decisions(id, project_id, title, rationale, status, decided_at, supersedes_id, event_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      id,
-      input.projectId,
-      input.title,
-      input.rationale,
-      input.status ?? "active",
-      input.decidedAt ?? now(),
-      input.supersedesId ?? null,
-      input.eventId,
-    );
+    this.transaction(() => {
+      if (input.supersedesId) {
+        this.db.prepare("UPDATE decisions SET status='deprecated' WHERE id=? AND project_id=?").run(input.supersedesId, input.projectId);
+      }
+      this.db.prepare(
+        `INSERT INTO decisions(id, project_id, title, rationale, status, decided_at, supersedes_id, event_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        input.projectId,
+        input.title,
+        input.rationale,
+        input.status ?? "active",
+        input.decidedAt ?? now(),
+        input.supersedesId ?? null,
+        input.eventId,
+      );
+    });
     return id;
+  }
+
+  getDecision(decisionId: string): { id: string; projectId: string; title: string; rationale: string; status: EntityStatus; decidedAt: string; eventId: string } | null {
+    const row = this.db.prepare(
+      "SELECT id, project_id, title, rationale, status, decided_at, event_id FROM decisions WHERE id=?",
+    ).get(decisionId);
+    return row ? {
+      id: text(row, "id"),
+      projectId: text(row, "project_id"),
+      title: text(row, "title"),
+      rationale: text(row, "rationale"),
+      status: text(row, "status") as EntityStatus,
+      decidedAt: text(row, "decided_at"),
+      eventId: text(row, "event_id"),
+    } : null;
+  }
+
+  addFact(input: {
+    projectId: string;
+    subject: string;
+    predicate: string;
+    objectText: string;
+    confidence?: number;
+    status?: EntityStatus;
+    validFrom?: string;
+    sourceEventId: string;
+  }): string {
+    const existing = this.db.prepare(
+      "SELECT id FROM facts WHERE project_id = ? AND subject = ? AND predicate = ? AND source_event_id = ?",
+    ).get(input.projectId, input.subject, input.predicate, input.sourceEventId);
+    if (existing) return text(existing, "id");
+    const id = `fact_${randomUUID()}`;
+    const validFrom = input.validFrom ?? now();
+    this.transaction(() => {
+      this.db.prepare(
+        `UPDATE facts SET valid_to = ?
+         WHERE project_id = ? AND subject = ? AND predicate = ? AND valid_to IS NULL`,
+      ).run(validFrom, input.projectId, input.subject, input.predicate);
+      this.db.prepare(
+        `INSERT INTO facts(id, project_id, subject, predicate, object_text, confidence, status, valid_from, valid_to, source_event_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      ).run(
+        id,
+        input.projectId,
+        input.subject,
+        input.predicate,
+        input.objectText,
+        input.confidence ?? 1,
+        input.status ?? "active",
+        validFrom,
+        input.sourceEventId,
+        now(),
+      );
+    });
+    return id;
+  }
+
+  listFacts(projectId: string, limit = 20, includeHistory = false): ProjectFact[] {
+    const historyClause = includeHistory ? "" : "AND f.valid_to IS NULL AND f.status != 'deprecated'";
+    return this.db.prepare(
+      `SELECT f.id, f.project_id, f.subject, f.predicate, f.object_text, f.confidence, f.status, f.valid_from, f.valid_to, f.source_event_id
+       FROM facts f JOIN events e ON e.id = f.source_event_id
+       WHERE f.project_id = ? ${historyClause} AND e.excluded = 0
+       ORDER BY f.valid_from DESC LIMIT ?`,
+    ).all(projectId, Math.max(1, Math.min(limit, 100_000))).map((row) => ({
+      id: text(row, "id"),
+      projectId: text(row, "project_id"),
+      subject: text(row, "subject"),
+      predicate: text(row, "predicate"),
+      objectText: text(row, "object_text"),
+      confidence: number(row, "confidence"),
+      status: text(row, "status") as EntityStatus,
+      validFrom: text(row, "valid_from"),
+      validTo: optionalText(row, "valid_to"),
+      sourceEventId: text(row, "source_event_id"),
+    }));
   }
 
   upsertNode(input: GraphNodeInput): string {
@@ -539,9 +652,10 @@ export class MemoryDatabase {
     sourceEventId: string;
   }> {
     return this.db.prepare(
-      `SELECT key, value_json, value_text, status, valid_from, source_event_id
-       FROM state_entries WHERE project_id = ? AND valid_to IS NULL
-       ORDER BY updated_at DESC LIMIT ?`,
+      `SELECT s.key, s.value_json, s.value_text, s.status, s.valid_from, s.source_event_id
+       FROM state_entries s JOIN events e ON e.id = s.source_event_id
+       WHERE s.project_id = ? AND s.valid_to IS NULL AND e.excluded = 0
+       ORDER BY s.updated_at DESC LIMIT ?`,
     ).all(projectId, limit).map((row) => ({
       key: text(row, "key"),
       value: JSON.parse(text(row, "value_json")) as unknown,
@@ -554,9 +668,11 @@ export class MemoryDatabase {
 
   activeNodes(projectId: string, limit = 50): Array<{ id: string; type: string; label: string; status: EntityStatus; summary: string }> {
     return this.db.prepare(
-      `SELECT id, type, label, status, summary FROM nodes
-       WHERE project_id = ? AND valid_to IS NULL AND status IN ('active', 'blocked', 'planned')
-       ORDER BY CASE status WHEN 'blocked' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, updated_at DESC LIMIT ?`,
+      `SELECT n.id, n.type, n.label, n.status, n.summary FROM nodes n
+       LEFT JOIN events e ON e.id = n.source_event_id
+       WHERE n.project_id = ? AND n.valid_to IS NULL AND n.status IN ('active', 'blocked', 'planned')
+         AND (n.source_event_id IS NULL OR e.excluded = 0)
+       ORDER BY CASE n.status WHEN 'blocked' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, n.updated_at DESC LIMIT ?`,
     ).all(projectId, limit).map((row) => ({
       id: text(row, "id"),
       type: text(row, "type"),
@@ -568,8 +684,9 @@ export class MemoryDatabase {
 
   recentDecisions(projectId: string, limit = 8): Array<{ id: string; title: string; rationale: string; decidedAt: string }> {
     return this.db.prepare(
-      `SELECT id, title, rationale, decided_at FROM decisions
-       WHERE project_id = ? AND status != 'deprecated' ORDER BY decided_at DESC LIMIT ?`,
+      `SELECT d.id, d.title, d.rationale, d.decided_at FROM decisions d
+       JOIN events e ON e.id = d.event_id
+       WHERE d.project_id = ? AND d.status != 'deprecated' AND e.excluded = 0 ORDER BY d.decided_at DESC LIMIT ?`,
     ).all(projectId, limit).map((row) => ({
       id: text(row, "id"),
       title: text(row, "title"),
@@ -665,8 +782,9 @@ export class MemoryDatabase {
 
   stateHistory(projectId: string, limit = 500): Array<Record<string, unknown>> {
     return this.db.prepare(
-      `SELECT id, key, value_json, value_text, status, valid_from, valid_to, source_event_id
-       FROM state_entries WHERE project_id = ? ORDER BY valid_from DESC LIMIT ?`,
+      `SELECT s.id, s.key, s.value_json, s.value_text, s.status, s.valid_from, s.valid_to, s.source_event_id
+       FROM state_entries s JOIN events e ON e.id = s.source_event_id
+       WHERE s.project_id = ? AND e.excluded = 0 ORDER BY s.valid_from DESC LIMIT ?`,
     ).all(projectId, Math.max(1, Math.min(limit, 100_000))).map((row) => ({
       id: text(row, "id"),
       key: text(row, "key"),
@@ -689,10 +807,10 @@ export class MemoryDatabase {
     sourceEventId: string;
   }> {
     return this.db.prepare(
-      `SELECT key, value_json, value_text, status, valid_from, valid_to, source_event_id
-       FROM state_entries
-       WHERE project_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to > ?)
-       ORDER BY key`,
+      `SELECT s.key, s.value_json, s.value_text, s.status, s.valid_from, s.valid_to, s.source_event_id
+       FROM state_entries s JOIN events e ON e.id = s.source_event_id
+       WHERE s.project_id = ? AND s.valid_from <= ? AND (s.valid_to IS NULL OR s.valid_to > ?) AND e.excluded = 0
+       ORDER BY s.key`,
     ).all(projectId, at, at).map((row) => ({
       key: text(row, "key"),
       value: JSON.parse(text(row, "value_json")) as unknown,
@@ -731,7 +849,7 @@ export class MemoryDatabase {
        FROM nodes n
        JOIN events e ON e.id = n.source_event_id
        LEFT JOIN evidence evd ON evd.event_id = e.id
-       WHERE n.id = ? ORDER BY evd.captured_at DESC`,
+       WHERE n.id = ? AND e.excluded = 0 ORDER BY evd.captured_at DESC`,
     ).all(nodeId).map((row) => ({
       id: optionalText(row, "id"),
       uri: optionalText(row, "uri"),
@@ -773,7 +891,8 @@ export class MemoryDatabase {
               snippet(nodes_fts, 2, '[', ']', ' … ', 16) AS snippet,
               bm25(nodes_fts) AS rank
        FROM nodes_fts JOIN nodes n ON n.id = nodes_fts.node_id
-       WHERE nodes_fts MATCH ? AND nodes_fts.project_id = ?
+       LEFT JOIN events e ON e.id = n.source_event_id
+       WHERE nodes_fts MATCH ? AND nodes_fts.project_id = ? AND (n.source_event_id IS NULL OR e.excluded = 0)
        ORDER BY rank LIMIT ?`,
     ).all(ftsQuery, projectId, safeLimit);
     return [
@@ -875,31 +994,92 @@ export class MemoryDatabase {
 
   graph(projectId?: string): { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> } {
     const nodeRows = projectId
-      ? this.db.prepare("SELECT * FROM nodes WHERE project_id = ? AND valid_to IS NULL").all(projectId)
-      : this.db.prepare("SELECT * FROM nodes WHERE valid_to IS NULL").all();
+      ? this.db.prepare("SELECT n.* FROM nodes n LEFT JOIN events e ON e.id=n.source_event_id WHERE n.project_id = ? AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded = 0)").all(projectId)
+      : this.db.prepare("SELECT n.* FROM nodes n LEFT JOIN events e ON e.id=n.source_event_id WHERE n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded = 0)").all();
     const edgeRows = projectId
-      ? this.db.prepare("SELECT * FROM edges WHERE project_id = ? AND valid_to IS NULL").all(projectId)
-      : this.db.prepare("SELECT * FROM edges WHERE valid_to IS NULL").all();
-    return {
-      nodes: nodeRows.map((row) => ({
-        id: text(row, "id"), projectId: text(row, "project_id"), type: text(row, "type"), label: text(row, "label"),
-        status: text(row, "status"), summary: text(row, "summary"), attributes: parseObject(text(row, "attributes_json")),
-        validFrom: text(row, "valid_from"), validTo: optionalText(row, "valid_to"), sourceEventId: optionalText(row, "source_event_id"),
-      })),
-      edges: edgeRows.map((row) => ({
-        id: text(row, "id"), projectId: text(row, "project_id"), source: text(row, "source_node_id"), target: text(row, "target_node_id"),
-        type: text(row, "type"), status: text(row, "status"), attributes: parseObject(text(row, "attributes_json")),
-        validFrom: text(row, "valid_from"), validTo: optionalText(row, "valid_to"), sourceEventId: optionalText(row, "source_event_id"),
-      })),
-    };
+      ? this.db.prepare("SELECT r.* FROM edges r LEFT JOIN events e ON e.id=r.source_event_id WHERE r.project_id = ? AND r.valid_to IS NULL AND (r.source_event_id IS NULL OR e.excluded = 0)").all(projectId)
+      : this.db.prepare("SELECT r.* FROM edges r LEFT JOIN events e ON e.id=r.source_event_id WHERE r.valid_to IS NULL AND (r.source_event_id IS NULL OR e.excluded = 0)").all();
+    return graphOutput(nodeRows, edgeRows);
+  }
+
+  atlasGraph(): { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>>; totalNodes: number; totalEdges: number; truncated: false } {
+    const nodeRows = this.db.prepare(
+      `SELECT n.* FROM nodes n LEFT JOIN events e ON e.id=n.source_event_id
+       WHERE n.type='Project' AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded=0)
+       ORDER BY n.updated_at DESC`,
+    ).all();
+    const edgeRows = this.db.prepare(
+      `SELECT r.* FROM edges r
+       JOIN nodes source ON source.id=r.source_node_id AND source.type='Project'
+       JOIN nodes target ON target.id=r.target_node_id AND target.type='Project'
+       LEFT JOIN events e ON e.id=r.source_event_id
+       WHERE r.valid_to IS NULL AND (r.source_event_id IS NULL OR e.excluded=0)`,
+    ).all();
+    const graph = graphOutput(nodeRows, edgeRows);
+    return { ...graph, totalNodes: graph.nodes.length, totalEdges: graph.edges.length, truncated: false };
+  }
+
+  graphSlice(projectId: string, limit = 2_500): { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>>; totalNodes: number; totalEdges: number; truncated: boolean } {
+    const safeLimit = Math.max(100, Math.min(limit, 5_000));
+    const selection = `SELECT n.id FROM nodes n LEFT JOIN events ne ON ne.id=n.source_event_id
+      WHERE n.project_id=? AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR ne.excluded=0)
+      ORDER BY CASE n.type WHEN 'Project' THEN 0 WHEN 'Issue' THEN 1 WHEN 'Task' THEN 2 ELSE 3 END,
+               CASE n.status WHEN 'blocked' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, n.updated_at DESC LIMIT ?`;
+    const nodeRows = this.db.prepare(
+      `WITH selected AS (${selection})
+       SELECT n.* FROM nodes n JOIN selected s ON s.id=n.id`,
+    ).all(projectId, safeLimit);
+    const edgeRows = this.db.prepare(
+      `WITH selected AS (${selection})
+       SELECT r.* FROM edges r
+       JOIN selected source ON source.id=r.source_node_id
+       JOIN selected target ON target.id=r.target_node_id
+       LEFT JOIN events e ON e.id=r.source_event_id
+       WHERE r.project_id=? AND r.valid_to IS NULL AND (r.source_event_id IS NULL OR e.excluded=0)`,
+    ).all(projectId, safeLimit, projectId);
+    const totalNodeRow = this.db.prepare(
+      "SELECT count(*) AS count FROM nodes n LEFT JOIN events e ON e.id=n.source_event_id WHERE n.project_id=? AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded=0)",
+    ).get(projectId);
+    const totalEdgeRow = this.db.prepare(
+      "SELECT count(*) AS count FROM edges r LEFT JOIN events e ON e.id=r.source_event_id WHERE r.project_id=? AND r.valid_to IS NULL AND (r.source_event_id IS NULL OR e.excluded=0)",
+    ).get(projectId);
+    const graph = graphOutput(nodeRows, edgeRows);
+    const totalNodes = totalNodeRow ? number(totalNodeRow, "count") : 0;
+    const totalEdges = totalEdgeRow ? number(totalEdgeRow, "count") : 0;
+    return { ...graph, totalNodes, totalEdges, truncated: totalNodes > graph.nodes.length };
+  }
+
+  nodeNeighborhood(nodeId: string, limit = 200): { nodes: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>>; totalNodes: number; totalEdges: number; truncated: boolean } | null {
+    const safeLimit = Math.max(10, Math.min(limit, 500));
+    const center = this.db.prepare(
+      `SELECT n.* FROM nodes n LEFT JOIN events e ON e.id=n.source_event_id
+       WHERE n.id=? AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded=0)`,
+    ).get(nodeId);
+    if (!center) return null;
+    const allIncident = this.db.prepare(
+      `SELECT r.* FROM edges r LEFT JOIN events e ON e.id=r.source_event_id
+       WHERE (r.source_node_id=? OR r.target_node_id=?) AND r.valid_to IS NULL
+         AND (r.source_event_id IS NULL OR e.excluded=0)
+       ORDER BY r.created_at DESC`,
+    ).all(nodeId, nodeId);
+    const edgeRows = allIncident.slice(0, safeLimit);
+    const nodeIds = [...new Set([nodeId, ...edgeRows.flatMap((row) => [text(row, "source_node_id"), text(row, "target_node_id")])])];
+    const placeholders = nodeIds.map(() => "?").join(",");
+    const nodeRows = this.db.prepare(
+      `SELECT n.* FROM nodes n LEFT JOIN events e ON e.id=n.source_event_id
+       WHERE n.id IN (${placeholders}) AND n.valid_to IS NULL AND (n.source_event_id IS NULL OR e.excluded=0)`,
+    ).all(...nodeIds);
+    const graph = graphOutput(nodeRows, edgeRows);
+    return { ...graph, totalNodes: nodeIds.length, totalEdges: allIncident.length, truncated: allIncident.length > edgeRows.length };
   }
 
   exportProject(projectId: string): Record<string, unknown> {
     const project = this.getProject(projectId);
     if (!project) throw new Error(`Project not found: ${projectId}`);
     const evidence = this.db.prepare(
-      `SELECT id, event_id, uri, kind, locator_json, captured_at, digest
-       FROM evidence WHERE project_id = ? ORDER BY captured_at, id`,
+      `SELECT evd.id, evd.event_id, evd.uri, evd.kind, evd.locator_json, evd.captured_at, evd.digest
+       FROM evidence evd JOIN events e ON e.id = evd.event_id
+       WHERE evd.project_id = ? AND e.excluded = 0 ORDER BY evd.captured_at, evd.id`,
     ).all(projectId).map((row) => ({
       id: text(row, "id"),
       eventId: text(row, "event_id"),
@@ -918,6 +1098,7 @@ export class MemoryDatabase {
       events: this.allEvents(projectId),
       evidence,
       stateHistory: this.stateHistory(projectId, 100_000),
+      facts: this.listFacts(projectId, 100_000, true),
       decisions: this.recentDecisions(projectId, 100_000),
       handoffs: this.listHandoffs(projectId, 100_000),
       graph: this.graph(projectId),

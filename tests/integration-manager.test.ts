@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { IntegrationManager, type IntegrationPaths, type IntegrationRuntime } from "../src/operations/integration-manager.js";
+import { renderLinuxUnit } from "../src/operations/service-manager.js";
 
 const cleanup: string[] = [];
 afterEach(() => { for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -45,6 +46,18 @@ function fixture() {
 }
 
 describe("IntegrationManager", () => {
+  it("quotes Linux service paths that contain spaces", () => {
+    const unit = renderLinuxUnit({
+      nodePath: "/opt/node bin/node",
+      cliPath: "/Users/example/New project/memorygraph/dist/cli.js",
+      dataDir: "/Users/example/Library/Application Support/MemoryGraph",
+      host: "127.0.0.1",
+      port: 4765,
+    });
+    expect(unit).toContain('ExecStart="/opt/node bin/node" "/Users/example/New project/memorygraph/dist/cli.js"');
+    expect(unit).toContain('--data-dir "/Users/example/Library/Application Support/MemoryGraph"');
+  });
+
   it("installs and recoverably removes OpenCode MCP plus Skill without overwriting unrelated config", () => {
     const { manager, paths } = fixture();
     const installed = manager.install("opencode");
@@ -63,6 +76,7 @@ describe("IntegrationManager", () => {
   it("uses native CLI registration for Codex and Command Code", () => {
     const { manager, calls } = fixture();
     expect(manager.install("codex").mcpConfigured).toBe(true);
+    expect(manager.install("codex").mcpConfigured).toBe(true);
     expect(manager.install("command-code").mcpConfigured).toBe(true);
     expect(calls.some((call) => call.command === "codex" && call.args.slice(0, 3).join(" ") === "mcp add memorygraph")).toBe(true);
     expect(calls.some((call) => call.command === "commandcode" && call.args.includes("add-json"))).toBe(true);
@@ -79,4 +93,3 @@ describe("IntegrationManager", () => {
     expect(trae.mcpServers.memorygraph.args).toContain("mcp");
   });
 });
-

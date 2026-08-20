@@ -84,5 +84,31 @@ export class ProjectResolver {
     writeFileSync(join(directory, "project.json"), `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     return project;
   }
-}
 
+  attachRoot(projectId: string, root: string, primary = false): ProjectIdentity {
+    const project = this.database.getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    const normalized = resolve(root);
+    const alreadyAttached = this.database.findProjectForPath(normalized);
+    if (alreadyAttached && alreadyAttached.projectId !== projectId) {
+      throw new Error(`${normalized} is already inside project ${alreadyAttached.name}`);
+    }
+    const directory = join(normalized, ".memorygraph");
+    const identityPath = join(directory, "project.json");
+    if (existsSync(identityPath)) {
+      const existing = parseProjectFile(identityPath);
+      if (existing.project_id !== projectId) throw new Error(`${identityPath} belongs to another MemoryGraph project`);
+    } else {
+      mkdirSync(directory, { recursive: true });
+      const file: ProjectFile = {
+        project_id: projectId,
+        name: project.name,
+        workspace: project.workspaceId,
+        created_at: project.createdAt,
+      };
+      writeFileSync(identityPath, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    }
+    this.database.addProjectRoot(projectId, normalized, primary);
+    return this.database.getProject(projectId) ?? project;
+  }
+}

@@ -6,6 +6,7 @@ import BetterSqlite3 from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CodexAdapter } from "../src/adapters/codex-adapter.js";
+import { fileContainsText, readJsonLines } from "../src/adapters/jsonl.js";
 import { CommandCodeAdapter } from "../src/adapters/command-code-adapter.js";
 import { OpenCodeAdapter } from "../src/adapters/opencode-adapter.js";
 import { AdapterRegistry } from "../src/adapters/registry.js";
@@ -27,6 +28,18 @@ afterEach(() => {
 });
 
 describe("agent adapters", () => {
+  it("keeps an incomplete JSONL tail for the next incremental read", () => {
+    const root = temporary("memorygraph-jsonl-tail-");
+    const path = join(root, "events.jsonl");
+    writeFileSync(path, '{"type":"complete"}\n{"type":"partial"');
+    const first = readJsonLines(path, 0);
+    expect(first.lines.map((line) => line.value.type)).toEqual(["complete"]);
+    expect(first.nextOffset).toBe(Buffer.byteLength('{"type":"complete"}\n'));
+    const boundaryPath = join(root, "boundary.log");
+    writeFileSync(boundaryPath, `${"x".repeat(65_533)}跨边界项目路径`);
+    expect(fileContainsText(boundaryPath, "跨边界项目路径")).toBe(true);
+  });
+
   it("ingests Codex JSONL incrementally and strips tool secrets", () => {
     const projectRoot = temporary("memorygraph-adapter-project-");
     const sessionsRoot = temporary("memorygraph-codex-source-");

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 
 import type { AdapterSyncResult, EventKind, ProjectIdentity } from "../domain/types.js";
 import { MemoryDatabase } from "../storage/database.js";
-import { readFirstJsonObject, readJsonLines } from "./jsonl.js";
+import { fileContainsText, readFirstJsonObject, readJsonLines } from "./jsonl.js";
 import { protectedMessage, sanitizeForPolicy } from "./redaction.js";
 import type { AgentAdapter } from "./types.js";
 
@@ -40,7 +40,7 @@ function inside(path: string, root: string): boolean {
 function sessionMatchesProject(path: string, sessionCwd: string, projectRoot: string): boolean {
   if (inside(sessionCwd, projectRoot)) return true;
   if (!inside(projectRoot, sessionCwd)) return false;
-  return readFileSync(path, "utf8").includes(projectRoot);
+  return fileContainsText(path, projectRoot);
 }
 
 function extractText(content: unknown): string {

@@ -37,6 +37,7 @@ function hash(value: string): string {
 
 function nodeTypeFor(kind: RememberKind): NodeType {
   switch (kind) {
+    case "fact": return "Fact";
     case "decision": return "Decision";
     case "issue": return "Issue";
     case "task": return "Task";
@@ -84,6 +85,12 @@ export class MemoryGraphCore {
     return project;
   }
 
+  attachProjectRoot(projectId: string, root: string, primary = false): ProjectIdentity {
+    const project = this.resolver.attachRoot(projectId, root, primary);
+    this.ensureProjectNode(project);
+    return project;
+  }
+
   remember(input: RememberInput): { project: ProjectIdentity; eventId: string; nodeId: string } {
     const project = this.resolveProject(input.cwd, true);
     const sourceUri = input.sourceUri ?? `manual://${input.agent}`;
@@ -93,6 +100,12 @@ export class MemoryGraphCore {
       agent: input.agent,
       title: input.title,
       content: input.content,
+      key: input.key,
+      value: input.value,
+      status: input.status ?? "active",
+      supersedesDecisionId: input.supersedesDecisionId,
+      sessionId: input.sessionId,
+      confidence: input.confidence ?? 1,
       sourceUri,
       occurredAt: input.occurredAt,
     }));
@@ -110,6 +123,7 @@ export class MemoryGraphCore {
         content: input.content,
         ...(input.key === undefined ? {} : { key: input.key }),
         ...(input.value === undefined ? {} : { value: input.value }),
+        ...(input.supersedesDecisionId === undefined ? {} : { supersedesDecisionId: input.supersedesDecisionId }),
         status: input.status ?? "active",
       },
       ...(input.confidence === undefined ? {} : { confidence: input.confidence }),
@@ -147,8 +161,23 @@ export class MemoryGraphCore {
       });
     }
 
+    if (input.kind === "fact") {
+      this.database.addFact({
+        projectId: project.projectId,
+        subject: project.projectId,
+        predicate: input.key?.trim() || input.title.trim(),
+        objectText: typeof input.value === "string" ? input.value : input.content,
+        confidence: input.confidence ?? 1,
+        status: input.status ?? "active",
+        ...(input.occurredAt === undefined ? {} : { validFrom: input.occurredAt }),
+        sourceEventId: event.id,
+      });
+    }
+
     const nodeId = this.database.upsertNode({
-      id: `${input.kind}:${project.projectId}:${hash(`${input.title}\0${input.content}`).slice(0, 20)}`,
+      id: input.kind === "fact"
+        ? `fact:${project.projectId}:${hash(input.key?.trim() || input.title.trim()).slice(0, 20)}`
+        : `${input.kind}:${project.projectId}:${hash(`${input.title}\0${input.content}`).slice(0, 20)}`,
       projectId: project.projectId,
       type: nodeTypeFor(input.kind),
       label: input.title,
@@ -171,6 +200,31 @@ export class MemoryGraphCore {
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("UNIQUE constraint failed")) throw error;
     }
+    if (input.kind === "decision" && input.supersedesDecisionId) {
+      const superseded = this.database.getDecision(input.supersedesDecisionId);
+      if (superseded && superseded.projectId === project.projectId) {
+        const supersededNodeId = `decision:${project.projectId}:${hash(`${superseded.title}\0${superseded.rationale}`).slice(0, 20)}`;
+        this.database.upsertNode({
+          id: supersededNodeId,
+          projectId: project.projectId,
+          type: "Decision",
+          label: superseded.title,
+          status: "deprecated",
+          summary: superseded.rationale,
+          validFrom: superseded.decidedAt,
+          sourceEventId: superseded.eventId,
+        });
+        this.database.addEdge({
+          id: `edge:${nodeId}:${supersededNodeId}:supersedes`,
+          projectId: project.projectId,
+          sourceNodeId: nodeId,
+          targetNodeId: supersededNodeId,
+          type: "SUPERSEDES",
+          status: "active",
+          sourceEventId: event.id,
+        });
+      }
+    }
     return { project, eventId: event.id, nodeId };
   }
 
@@ -180,6 +234,7 @@ export class MemoryGraphCore {
     state: ReturnType<MemoryDatabase["currentState"]>;
     activeWork: ReturnType<MemoryDatabase["activeNodes"]>;
     decisions: ReturnType<MemoryDatabase["recentDecisions"]>;
+    facts: ReturnType<MemoryDatabase["listFacts"]>;
   } {
     const project = this.resolveProject(cwd, false);
     const workTypes = new Set(["Workstream", "Requirement", "Task", "Issue", "Milestone"]);
@@ -189,7 +244,14 @@ export class MemoryGraphCore {
       state: this.database.currentState(project.projectId),
       activeWork: this.database.activeNodes(project.projectId, 200).filter((node) => workTypes.has(node.type)).slice(0, 50),
       decisions: this.database.recentDecisions(project.projectId),
+      facts: this.database.listFacts(project.projectId),
     };
+  }
+
+  projectStateById(projectId: string) {
+    const project = this.database.getProject(projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    return this.projectState(project.primaryRoot);
   }
 
   search(cwd: string, query: string, limit = 20): { project: ProjectIdentity; hits: SearchHit[] } {
@@ -279,6 +341,7 @@ export class MemoryGraphCore {
     const workTypes = new Set(["Workstream", "Requirement", "Task", "Issue", "Milestone"]);
     let activeWork = this.database.activeNodes(project.projectId, 200).filter((node) => workTypes.has(node.type)).slice(0, 40).map((node) => ({ ...node, type: node.type as NodeType }));
     let recentDecisions = this.database.recentDecisions(project.projectId, 8);
+    let recentFacts = this.database.listFacts(project.projectId, 10);
     let recentEvents = this.database.recentEvents(project.projectId, 20);
     let compiledSync = sync;
     const previousAgent = this.database.previousAgent(project.projectId, input.receivingAgent);
@@ -308,7 +371,16 @@ export class MemoryGraphCore {
       currentState,
       activeWork,
       recentDecisions,
+      recentFacts,
       recentEvents,
+      selectionReasons: {
+        repository: "Live Git snapshot captured at handoff time; it overrides stale memory claims.",
+        currentState: "Current non-superseded state entries with included source evidence.",
+        activeWork: "Active, blocked, or planned work nodes prioritized for continuation.",
+        recentDecisions: "Latest non-deprecated decisions explain current constraints.",
+        recentFacts: "Current temporal facts whose source events are not excluded.",
+        recentEvents: "Newest included evidence after adapter cursor synchronization.",
+      },
       sync: compiledSync,
       nextSteps,
       warnings,
@@ -319,6 +391,7 @@ export class MemoryGraphCore {
       if (recentEvents.length > 3) recentEvents = recentEvents.slice(0, Math.max(3, recentEvents.length - 3));
       else if (activeWork.length > 5) activeWork = activeWork.slice(0, Math.max(5, activeWork.length - 3));
       else if (recentDecisions.length > 3) recentDecisions = recentDecisions.slice(0, recentDecisions.length - 1);
+      else if (recentFacts.length > 3) recentFacts = recentFacts.slice(0, recentFacts.length - 1);
       else if (currentState.length > 8) currentState = currentState.slice(0, currentState.length - 2);
       else if (repository.changedFiles.length > 20) repository = { ...repository, changedFiles: repository.changedFiles.slice(0, 20) };
       else if (compiledSync.length > 0) compiledSync = [];
@@ -345,12 +418,14 @@ export class MemoryGraphCore {
       }));
       activeWork = activeWork.slice(0, 3).map((entry) => ({ ...entry, summary: entry.summary.slice(0, 180) }));
       recentDecisions = recentDecisions.slice(0, 2).map((entry) => ({ ...entry, rationale: entry.rationale.slice(0, 180) }));
+      recentFacts = recentFacts.slice(0, 3).map((entry) => ({ ...entry, objectText: entry.objectText.slice(0, 180) }));
       recentEvents = recentEvents.slice(0, 2).map((entry) => ({ ...entry, summary: entry.summary.slice(0, 180) }));
       nextSteps = nextSteps.slice(0, 2).map((entry) => entry.slice(0, 180));
     }
     while (estimate() > requestedBudget && recentEvents.length > 0) recentEvents = recentEvents.slice(0, -1);
     while (estimate() > requestedBudget && activeWork.length > 0) activeWork = activeWork.slice(0, -1);
     while (estimate() > requestedBudget && recentDecisions.length > 0) recentDecisions = recentDecisions.slice(0, -1);
+    while (estimate() > requestedBudget && recentFacts.length > 0) recentFacts = recentFacts.slice(0, -1);
     while (estimate() > requestedBudget && currentState.length > 0) currentState = currentState.slice(0, -1);
     while (estimate() > requestedBudget && nextSteps.length > 0) nextSteps = nextSteps.slice(0, -1);
     const contextWithoutHandoff = buildContext();
@@ -384,6 +459,16 @@ export class MemoryGraphCore {
       sourceEventId: handoffEvent.id,
     });
     return { ...contextWithoutHandoff, handoffId, estimatedTokens };
+  }
+
+  resumeProjectById(input: { projectId: string; receivingAgent: string; tokenBudget?: number }): ResumeContext {
+    const project = this.database.getProject(input.projectId);
+    if (!project) throw new Error(`Project not found: ${input.projectId}`);
+    return this.resumeProject({
+      cwd: project.primaryRoot,
+      receivingAgent: input.receivingAgent,
+      ...(input.tokenBudget === undefined ? {} : { tokenBudget: input.tokenBudget }),
+    });
   }
 
   private ensureProjectNode(project: ProjectIdentity): void {

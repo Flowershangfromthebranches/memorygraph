@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Blocks, GitBranch, History, Network, RefreshCw, Search, Trees, Waypoints } from "lucide-react";
 
 import { api } from "./api";
@@ -36,6 +36,7 @@ export default function App() {
   const [searchHits, setSearchHits] = useState<Array<Record<string, unknown>>>([]);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const initialSyncStarted = useRef(false);
 
   const selectedProject = projects.find((project) => project.projectId === selectedProjectId) ?? null;
   const agents = useMemo(() => [...new Set(events.map((event) => event.agentId))], [events]);
@@ -58,17 +59,37 @@ export default function App() {
 
   const syncAll = useCallback(async () => {
     setSyncing(true);
-    try { await api.sync(); await refreshWorkspace(); }
+    try {
+      await api.sync();
+      await refreshWorkspace();
+      if (selectedProjectId) await refreshProject(selectedProjectId);
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); await refreshWorkspace(); }
     finally { setSyncing(false); }
-  }, [refreshWorkspace]);
+  }, [refreshProject, refreshWorkspace, selectedProjectId]);
 
-  useEffect(() => { void syncAll(); }, [syncAll]);
+  useEffect(() => {
+    if (initialSyncStarted.current) return;
+    initialSyncStarted.current = true;
+    void syncAll();
+  }, [syncAll]);
   useEffect(() => { if (selectedProjectId) void refreshProject(selectedProjectId); }, [refreshProject, selectedProjectId]);
   useEffect(() => {
     if (!selectedNode) { setEvidence([]); return; }
     void api.evidence(selectedNode.id).then((payload) => setEvidence(payload.evidence)).catch(() => setEvidence([]));
   }, [selectedNode]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      } else if (event.key === "Escape") {
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const selectNode = useCallback((node: GraphNode) => {
     setSelectedNode(node);
@@ -82,6 +103,20 @@ export default function App() {
     if (!selectedProject || !searchQuery.trim()) return;
     try { setSearchHits((await api.search(selectedProject.primaryRoot, searchQuery)).hits); }
     catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
+  };
+
+  const focusSearchHit = async (hit: Record<string, unknown>) => {
+    if (hit.kind !== "node" || typeof hit.id !== "string") return;
+    try {
+      const neighborhood = await api.neighborhood(hit.id);
+      const node = neighborhood.nodes.find((candidate) => candidate.id === hit.id);
+      if (!node) return;
+      setProjectGraph(neighborhood);
+      setSelectedProjectId(node.projectId);
+      setSelectedNode(node);
+      setView("graph");
+      setSearchOpen(false);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   };
 
   const generateHandoff = async (agent: string) => {
@@ -100,7 +135,7 @@ export default function App() {
   const subtitle = view === "atlas" ? `${projects.length} projects · shared state atlas`
     : view === "timeline" ? `${events.length} evidence-backed events`
       : view === "handoff" ? `${handoffs.length} recorded agent transfers`
-        : `${view[0]?.toUpperCase()}${view.slice(1)} view · ${projectGraph.nodes.length} nodes`;
+        : `${view[0]?.toUpperCase()}${view.slice(1)} view · ${projectGraph.totalNodes ?? projectGraph.nodes.length} nodes${projectGraph.truncated ? ` · showing ${projectGraph.nodes.length}` : ""}`;
 
   return (
     <div className="app-shell">
@@ -124,13 +159,13 @@ export default function App() {
           {view === "tree" && <NarrativeTree data={projectGraph} onSelect={selectNode} />}
           {view === "timeline" && <Timeline events={events} diff={memoryDiff} onDiff={() => void loadDiff()} />}
           {view === "handoff" && selectedProject && <HandoffView project={selectedProject} handoffs={handoffs} onGenerate={generateHandoff} />}
-          <div className="view-legend"><span><i className="status-dot status-complete" />Complete</span><span><i className="status-dot status-active" />Active</span><span><i className="status-dot status-blocked" />Blocked</span><span><i className="status-dot status-planned" />Planned</span></div>
+          <div className="view-legend"><span><i className="status-dot status-complete" />Complete</span><span><i className="status-dot status-active" />Active</span><span><i className="status-dot status-blocked" />Blocked</span><span><i className="status-dot status-planned" />Planned</span><span><i className="status-dot status-deprecated" />Deprecated</span></div>
         </section>
       </main>
 
       <Inspector node={selectedNode} evidence={evidence} projectState={projectState} />
 
-      {searchOpen && <div className="search-panel"><div className="search-box"><Search size={18} /><input autoFocus placeholder="Search decisions, issues, files, sessions…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void runSearch(); if (event.key === "Escape") setSearchOpen(false); }} /><button onClick={() => void runSearch()}>Search</button></div><div className="search-results">{searchHits.map((hit, index) => <article key={String(hit.id ?? index)}><span>{String(hit.kind ?? "memory")}</span><strong>{String(hit.title ?? "Untitled")}</strong><p>{String(hit.snippet ?? "")}</p></article>)}{searchQuery && !searchHits.length && <p>Press Enter to search this project.</p>}</div></div>}
+      {searchOpen && <div className="search-panel" role="dialog" aria-label="Search project memory"><div className="search-box"><Search size={18} /><input autoFocus aria-label="Memory search query" placeholder="Search decisions, issues, files, sessions…" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void runSearch(); if (event.key === "Escape") setSearchOpen(false); }} /><button onClick={() => void runSearch()}>Search</button></div><div className="search-results">{searchHits.map((hit, index) => <button key={String(hit.id ?? index)} onClick={() => void focusSearchHit(hit)} disabled={hit.kind !== "node"}><span>{String(hit.kind ?? "memory")}</span><strong>{String(hit.title ?? "Untitled")}</strong><p>{String(hit.snippet ?? "")}</p></button>)}{searchQuery && !searchHits.length && <p>Press Enter to search this project.</p>}</div></div>}
       {error && <button className="error-toast" onClick={() => setError(null)}>⚠ {error}<span>×</span></button>}
     </div>
   );

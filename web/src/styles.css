@@ -16,6 +16,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 button, input { font: inherit; }
 button { color: inherit; }
 code, kbd, .eyebrow, time { font-family: "SFMono-Regular", Menlo, Consolas, ui-monospace, monospace; }
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
 
 .app-shell {
   display: grid;
@@ -220,7 +221,7 @@ code, kbd, .eyebrow, time { font-family: "SFMono-Regular", Menlo, Consolas, ui-m
 .evidence-list span, .state-list span { display: block; color: #929b97; font: 8px "SFMono-Regular", monospace; }
 .evidence-list strong, .state-list strong { display: block; margin: 3px 0; font-size: 10px; line-height: 1.4; }
 .evidence-list small { display: block; overflow-wrap: anywhere; color: #7c8783; font: 7px "SFMono-Regular", monospace; }
-.pulse-grid { display: grid; grid-template-columns: repeat(3, 1fr); margin: 16px 0; border: 1px solid var(--line); border-radius: 7px; background: #f7f6f1; }
+.pulse-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin: 16px 0; border: 1px solid var(--line); border-radius: 7px; background: #f7f6f1; }
 .pulse-grid div { padding: 10px; border-right: 1px solid var(--line); }
 .pulse-grid div:last-child { border: 0; }
 .pulse-grid b, .pulse-grid span { display: block; }
@@ -292,8 +293,10 @@ code, kbd, .eyebrow, time { font-family: "SFMono-Regular", Menlo, Consolas, ui-m
 .search-box input { border: 0; outline: 0; background: transparent; font-size: 13px; }
 .search-box button { padding: 6px 10px; color: #fff; border: 0; border-radius: 5px; background: var(--ink); cursor: pointer; font-size: 9px; }
 .search-results { max-height: 500px; overflow: auto; padding: 7px; }
-.search-results article { padding: 10px; border-bottom: 1px solid #e2e3de; }
-.search-results article > span { color: var(--accent); font: 7px "SFMono-Regular", monospace; text-transform: uppercase; }
+.search-results button { width: 100%; display: block; padding: 10px; border: 0; border-bottom: 1px solid #e2e3de; background: transparent; cursor: pointer; text-align: left; }
+.search-results button:hover:not(:disabled) { background: #f0f1ec; }
+.search-results button:disabled { cursor: default; opacity: .72; }
+.search-results button > span { color: var(--accent); font: 7px "SFMono-Regular", monospace; text-transform: uppercase; }
 .search-results strong { display: block; margin: 4px 0; font-size: 11px; }
 .search-results p { margin: 0; color: #7d8783; font-size: 9px; }
 .error-toast { position: fixed; z-index: 30; right: 20px; bottom: 20px; max-width: 440px; display: flex; gap: 12px; padding: 10px 12px; color: #fff; border: 0; border-radius: 7px; background: #a84141; box-shadow: 0 8px 30px rgba(103,32,32,.25); cursor: pointer; font-size: 9px; text-align: left; }

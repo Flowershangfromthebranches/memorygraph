@@ -11,7 +11,12 @@ function result(value: unknown) {
 }
 
 export function buildMcpServer(core: MemoryGraphCore): McpServer {
-  const server = new McpServer({ name: "memorygraph", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "memorygraph", version: "0.1.0" },
+    {
+      instructions: "MemoryGraph is the evidence-backed shared project state. For continue/resume/cross-agent takeover, call resume_project first with cwd and the receiving agent; trust current state and live repository evidence before historical events. Use search/trace/explain for deeper context. Store durable facts only when explicitly requested. Never store credentials, cookies, tokens, or unrelated private content.",
+    },
+  );
 
   server.registerTool(
     "resume_project",
@@ -19,13 +24,16 @@ export function buildMcpServer(core: MemoryGraphCore): McpServer {
       title: "Resume project",
       description: "Pull and compile the latest shared project state for a receiving agent. Use for continue, resume, handoff, or picking up another agent's work.",
       inputSchema: z.object({
-        cwd: z.string().min(1).describe("Current project directory"),
+        cwd: z.string().min(1).optional().describe("Current project directory"),
+        project_id: z.string().min(1).optional().describe("Explicit registered project UUID when cwd is unavailable"),
         receiving_agent: z.string().min(1).describe("Agent receiving the handoff, for example codex or opencode"),
         token_budget: z.number().int().min(400).max(8_000).default(1_500),
-      }),
+      }).refine((value) => Boolean(value.cwd || value.project_id), { message: "cwd or project_id is required" }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ cwd, receiving_agent, token_budget }) => result(core.resumeProject({ cwd, receivingAgent: receiving_agent, tokenBudget: token_budget })),
+    async ({ cwd, project_id, receiving_agent, token_budget }) => result(project_id
+      ? core.resumeProjectById({ projectId: project_id, receivingAgent: receiving_agent, tokenBudget: token_budget })
+      : core.resumeProject({ cwd: cwd!, receivingAgent: receiving_agent, tokenBudget: token_budget })),
   );
 
   server.registerTool(
@@ -83,10 +91,11 @@ export function buildMcpServer(core: MemoryGraphCore): McpServer {
     {
       title: "Get current project state",
       description: "Return current state, active work, recent decisions, and a live Git snapshot without creating a handoff.",
-      inputSchema: z.object({ cwd: z.string().min(1) }),
+      inputSchema: z.object({ cwd: z.string().min(1).optional(), project_id: z.string().min(1).optional() })
+        .refine((value) => Boolean(value.cwd || value.project_id), { message: "cwd or project_id is required" }),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ cwd }) => result(core.projectState(cwd)),
+    async ({ cwd, project_id }) => result(project_id ? core.projectStateById(project_id) : core.projectState(cwd!)),
   );
 
   server.registerTool(
@@ -134,7 +143,7 @@ export function buildMcpServer(core: MemoryGraphCore): McpServer {
     async (uri, variables) => {
       const projectId = String(variables.projectId);
       const project = core.database.getProject(projectId);
-      const payload = project ? { project, state: core.database.currentState(projectId), activeWork: core.database.activeNodes(projectId) } : { error: "project_not_found", projectId };
+      const payload = project ? { project, state: core.database.currentState(projectId), activeWork: core.database.activeNodes(projectId), facts: core.database.listFacts(projectId) } : { error: "project_not_found", projectId };
       return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(payload, null, 2) }] };
     },
   );

@@ -38,6 +38,9 @@ export interface GraphEdge {
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  totalNodes?: number;
+  totalEdges?: number;
+  truncated?: boolean;
 }
 
 export interface TimelineEvent {
@@ -82,6 +85,7 @@ export interface ProjectState {
   project: Project;
   state: StateEntry[];
   activeWork: Array<{ id: string; type: string; label: string; status: string; summary: string }>;
+  facts: Array<{ id: string; predicate: string; objectText: string; confidence: number; validFrom: string }>;
   decisions: Decision[];
 }
 

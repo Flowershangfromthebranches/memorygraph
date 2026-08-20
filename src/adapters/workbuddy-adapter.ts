@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 
 import type { AdapterSyncResult, EventKind, ProjectIdentity } from "../domain/types.js";
 import { MemoryDatabase } from "../storage/database.js";
-import { readFirstJsonObject, readJsonLines } from "./jsonl.js";
+import { fileContainsText, readFirstJsonObject, readJsonLines } from "./jsonl.js";
 import { protectedMessage, sanitizeForPolicy, summarize } from "./redaction.js";
 import type { AgentAdapter } from "./types.js";
 
@@ -39,7 +39,7 @@ function projectFiles(root: string): string[] {
 function matches(path: string, cwd: string, projectRoot: string): boolean {
   if (inside(cwd, projectRoot)) return true;
   if (!inside(projectRoot, cwd)) return false;
-  return readFileSync(path, "utf8").includes(projectRoot);
+  return fileContainsText(path, projectRoot);
 }
 
 export class WorkBuddyAdapter implements AgentAdapter {
@@ -81,7 +81,10 @@ export class WorkBuddyAdapter implements AgentAdapter {
         } else if (type === "file-history-snapshot") {
           kind = "file_change"; summaryText = "File history snapshot"; payload = { snapshot: sanitizeForPolicy(record.snapshot, privacy), isSnapshotUpdate: record.isSnapshotUpdate ?? false };
         } else if (type === "ai-title") {
-          kind = "session"; summaryText = typeof record.aiTitle === "string" ? `Session: ${summarize(record.aiTitle)}` : "WorkBuddy session";
+          kind = "session";
+          summaryText = typeof record.aiTitle === "string"
+            ? (privacy.storeMessageContent ? `Session: ${summarize(record.aiTitle)}` : "Session: [title excluded by project privacy policy]")
+            : "WorkBuddy session";
         }
         if (!kind) continue;
         const occurredAt = typeof record.timestamp === "string" ? record.timestamp : startedAt;

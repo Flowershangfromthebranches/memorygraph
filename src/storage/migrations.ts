@@ -192,4 +192,23 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE events ADD COLUMN excluded_reason TEXT;
   CREATE INDEX IF NOT EXISTS idx_events_project_included_time ON events(project_id, excluded, occurred_at DESC);
   `,
+  `
+  CREATE TABLE IF NOT EXISTS facts (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object_text TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0,
+    status TEXT NOT NULL DEFAULT 'active',
+    valid_from TEXT NOT NULL,
+    valid_to TEXT,
+    source_event_id TEXT NOT NULL REFERENCES events(id),
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_facts_current_predicate
+    ON facts(project_id, subject, predicate) WHERE valid_to IS NULL;
+  CREATE INDEX IF NOT EXISTS idx_facts_project_history
+    ON facts(project_id, valid_from DESC);
+  `,
 ];

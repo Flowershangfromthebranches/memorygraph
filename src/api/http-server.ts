@@ -100,7 +100,9 @@ export function createMemoryGraphHttpServer(core: MemoryGraphCore, options: Http
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/graph") {
-        json(response, 200, core.database.graph(url.searchParams.get("projectId") ?? undefined));
+        const projectId = url.searchParams.get("projectId");
+        const requestedLimit = Number.parseInt(url.searchParams.get("limit") ?? "2500", 10);
+        json(response, 200, projectId ? core.database.graphSlice(projectId, requestedLimit) : core.database.atlasGraph());
         return;
       }
       const diffMatch = /^\/api\/projects\/([^/]+)\/diff$/u.exec(url.pathname);
@@ -130,6 +132,7 @@ export function createMemoryGraphHttpServer(core: MemoryGraphCore, options: Http
             project,
             state: core.database.currentState(projectId),
             activeWork: core.database.activeNodes(projectId, 500).filter((node) => workTypes.has(node.type)),
+            facts: core.database.listFacts(projectId),
             decisions: core.database.recentDecisions(projectId),
           });
         } else if (projectMatch[2] === "handoffs") {
@@ -158,6 +161,14 @@ export function createMemoryGraphHttpServer(core: MemoryGraphCore, options: Http
       const evidenceMatch = /^\/api\/nodes\/([^/]+)\/evidence$/u.exec(url.pathname);
       if (request.method === "GET" && evidenceMatch) {
         json(response, 200, { evidence: core.database.nodeEvidence(decodeURIComponent(evidenceMatch[1] ?? "")) });
+        return;
+      }
+      const neighborhoodMatch = /^\/api\/nodes\/([^/]+)\/neighborhood$/u.exec(url.pathname);
+      if (request.method === "GET" && neighborhoodMatch) {
+        const nodeId = decodeURIComponent(neighborhoodMatch[1] ?? "");
+        const neighborhood = core.database.nodeNeighborhood(nodeId, Number.parseInt(url.searchParams.get("limit") ?? "200", 10));
+        if (!neighborhood) { json(response, 404, { error: "node_not_found" }); return; }
+        json(response, 200, neighborhood);
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/projects/resolve") {

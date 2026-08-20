@@ -9,6 +9,7 @@ function object(value: unknown): Record<string, unknown> | null { return value &
 function status(value: unknown): EntityStatus { return ["planned", "active", "blocked", "complete", "deprecated"].includes(String(value)) ? value as EntityStatus : "active"; }
 
 function memoryNodeType(kind: string): NodeType {
+  if (kind === "fact") return "Fact";
   if (kind === "decision") return "Decision";
   if (kind === "issue") return "Issue";
   if (kind === "task") return "Task";
@@ -40,9 +41,20 @@ export class GraphReplayer {
       const memoryKind = typeof payload.kind === "string" ? payload.kind : null;
       const content = typeof payload.content === "string" ? payload.content : "";
       if (memoryKind) {
-        const nodeId = `${memoryKind}:${projectId}:${hash(`${event.summary}\0${content}`).slice(0, 20)}`;
+        const predicate = typeof payload.key === "string" && payload.key.trim() ? payload.key.trim() : event.summary.trim();
+        const nodeId = memoryKind === "fact"
+          ? `fact:${projectId}:${hash(predicate).slice(0, 20)}`
+          : `${memoryKind}:${projectId}:${hash(`${event.summary}\0${content}`).slice(0, 20)}`;
         this.database.upsertNode({ id: nodeId, projectId, type: memoryNodeType(memoryKind), label: event.summary, status: status(payload.status), summary: content, attributes: { kind: memoryKind, agent: event.agentId }, validFrom: event.occurredAt, sourceEventId: event.id });
         this.database.addEdge({ id: `edge:${projectId}:${nodeId}:contains`, projectId, sourceNodeId: `project:${projectId}`, targetNodeId: nodeId, type: "CONTAINS", status: status(payload.status), validFrom: event.occurredAt, sourceEventId: event.id });
+        if (memoryKind === "decision" && typeof payload.supersedesDecisionId === "string") {
+          const superseded = this.database.getDecision(payload.supersedesDecisionId);
+          if (superseded && superseded.projectId === projectId) {
+            const supersededNodeId = `decision:${projectId}:${hash(`${superseded.title}\0${superseded.rationale}`).slice(0, 20)}`;
+            this.database.upsertNode({ id: supersededNodeId, projectId, type: "Decision", label: superseded.title, status: "deprecated", summary: superseded.rationale, validFrom: superseded.decidedAt, sourceEventId: superseded.eventId });
+            this.database.addEdge({ id: `edge:${nodeId}:${supersededNodeId}:supersedes`, projectId, sourceNodeId: nodeId, targetNodeId: supersededNodeId, type: "SUPERSEDES", sourceEventId: event.id });
+          }
+        }
       }
       if (event.kind === "message") latestMessageByAgent.set(event.agentId, event);
       const sourceProjectId = typeof payload.sourceProjectId === "string" ? payload.sourceProjectId : null;

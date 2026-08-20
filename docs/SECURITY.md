@@ -8,6 +8,7 @@
 - Read agent sources without changing them.
 - Redact credential-shaped keys and values before persistence.
 - Preserve source evidence as locators; do not copy complete tool output or reasoning traces.
+- Exclude internal Codex subagent/control sessions from user project memory while retaining an auditable exclusion marker in the raw store.
 
 ## Trust boundaries
 
@@ -18,4 +19,3 @@ Graphiti enrichment may send event content to its configured language-model and 
 ## Reversible installation
 
 JSON agent configs are copied to timestamped `*.memorygraph-backup-*` files before mutation. Skill folders are renamed to timestamped backups before replacement and to `.removed-*` on uninstall. The service manager installs one user-scoped service definition and removes only that definition.
-
