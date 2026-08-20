@@ -23,6 +23,7 @@ export interface IntegrationRuntime {
   cliPath: string;
   dataDir: string;
   skillSource: string;
+  restBaseUrl?: string;
 }
 
 export interface IntegrationStatus {
@@ -109,6 +110,46 @@ export class IntegrationManager {
     private readonly execute: Executor = defaultExecutor,
   ) {}
 
+  universalManifest(): Record<string, unknown> {
+    const args = [this.runtime.cliPath, "mcp", "--data-dir", this.runtime.dataDir];
+    const restBaseUrl = this.runtime.restBaseUrl ?? "http://127.0.0.1:4765";
+    return {
+      name: "memorygraph",
+      compatibility: "Any agent, desktop app, CLI, IDE integration, or custom harness that can spawn an MCP stdio server or call a local JSON API.",
+      mcp: {
+        transport: "stdio",
+        command: this.runtime.nodePath,
+        args,
+        env: { MEMORYGRAPH_DATA_DIR: this.runtime.dataDir },
+        genericConfig: {
+          mcpServers: {
+            memorygraph: {
+              command: this.runtime.nodePath,
+              args,
+              env: { MEMORYGRAPH_DATA_DIR: this.runtime.dataDir },
+            },
+          },
+        },
+      },
+      rest: {
+        baseUrl: restBaseUrl,
+        endpoints: {
+          resume: { method: "POST", path: "/api/resume" },
+          search: { method: "POST", path: "/api/search" },
+          remember: { method: "POST", path: "/api/remember" },
+          sync: { method: "POST", path: "/api/sync" },
+          projects: { method: "GET", path: "/api/projects" },
+        },
+      },
+      skill: {
+        source: this.runtime.skillSource,
+        standard: "Agent Skills / SKILL.md",
+      },
+      bundledPresets: ["codex", "opencode", "command-code", "workbuddy", "trae"],
+      presetMeaning: "Bundled presets provide one-command config and/or passive native-session adapters. They are not a compatibility allowlist.",
+    };
+  }
+
   install(agent: SupportedAgent): IntegrationStatus {
     const command = [this.runtime.nodePath, this.runtime.cliPath, "mcp", "--data-dir", this.runtime.dataDir];
     const stdio = { command: command[0], args: command.slice(1), env: { MEMORYGRAPH_DATA_DIR: this.runtime.dataDir } };
@@ -178,11 +219,12 @@ export class IntegrationManager {
   }
 }
 
-export function currentIntegrationRuntime(cliPath: string, dataDir: string): IntegrationRuntime {
+export function currentIntegrationRuntime(cliPath: string, dataDir: string, host = "127.0.0.1", port = 4765): IntegrationRuntime {
   return {
     nodePath: stableNodeExecutable(),
     cliPath: resolve(cliPath),
     dataDir: resolve(dataDir),
     skillSource: resolve(import.meta.dirname, "..", "..", "integrations", "skills", "memorygraph"),
+    restBaseUrl: `http://${host}:${port}`,
   };
 }

@@ -38,7 +38,7 @@ function commandAvailable(command: string): boolean {
 }
 
 function printHelp(): void {
-  process.stdout.write(`MemoryGraph\n\nUsage:\n  memorygraph init [cwd] [--name NAME] [--data-dir DIR]\n  memorygraph root add <root> --project-id ID [--primary]\n  memorygraph remember [cwd] --agent AGENT --kind KIND --title TITLE --content TEXT [--key KEY] [--value JSON] [--status STATUS]\n  memorygraph link <source-cwd> <target-cwd> --relation RELATION\n  memorygraph privacy [cwd] [--store-message-content true|false] [--max-message-chars N] [--exclude PATTERN]\n  memorygraph sync [cwd] [--data-dir DIR]\n  memorygraph resume [cwd] --agent AGENT [--project-id ID] [--token-budget N] [--data-dir DIR]\n  memorygraph replay [cwd] [--data-dir DIR]\n  memorygraph export [cwd] --output FILE [--data-dir DIR]\n  memorygraph project-neo4j [cwd] [--data-dir DIR]\n  memorygraph backup --output FILE [--data-dir DIR]\n  memorygraph restore --input FILE [--data-dir DIR]\n  memorygraph service <install|status|uninstall> [--data-dir DIR]\n  memorygraph integration <install|status|uninstall> --agent <codex|opencode|command-code|workbuddy|trae|all>\n  memorygraph serve [--host HOST] [--port PORT] [--data-dir DIR]\n  memorygraph mcp [--data-dir DIR]\n  memorygraph doctor [--data-dir DIR]\n`);
+  process.stdout.write(`MemoryGraph\n\nUsage:\n  memorygraph init [cwd] [--name NAME] [--data-dir DIR]\n  memorygraph root add <root> --project-id ID [--primary]\n  memorygraph remember [cwd] --agent AGENT --kind KIND --title TITLE --content TEXT [--key KEY] [--value JSON] [--status STATUS]\n  memorygraph link <source-cwd> <target-cwd> --relation RELATION\n  memorygraph privacy [cwd] [--store-message-content true|false] [--max-message-chars N] [--exclude PATTERN]\n  memorygraph sync [cwd] [--data-dir DIR]\n  memorygraph resume [cwd] --agent AGENT [--project-id ID] [--token-budget N] [--data-dir DIR]\n  memorygraph replay [cwd] [--data-dir DIR]\n  memorygraph export [cwd] --output FILE [--data-dir DIR]\n  memorygraph project-neo4j [cwd] [--data-dir DIR]\n  memorygraph backup --output FILE [--data-dir DIR]\n  memorygraph restore --input FILE [--data-dir DIR]\n  memorygraph service <install|status|uninstall> [--data-dir DIR]\n  memorygraph integration manifest\n  memorygraph integration <install|status|uninstall> --agent <preset|all>\n  memorygraph serve [--host HOST] [--port PORT] [--data-dir DIR]\n  memorygraph mcp [--data-dir DIR]\n  memorygraph doctor [--data-dir DIR]\n`);
 }
 
 async function main(): Promise<void> {
@@ -253,12 +253,17 @@ async function main(): Promise<void> {
 
   if (command === "integration") {
     const action = args[1] ?? "status";
+    const cliPath = process.argv[1] ?? resolve(import.meta.dirname, "cli.js");
+    const manager = new IntegrationManager(currentIntegrationRuntime(cliPath, config.dataDir, config.host, config.port));
+    if (action === "manifest") {
+      database.close();
+      process.stdout.write(`${JSON.stringify(manager.universalManifest(), null, 2)}\n`);
+      return;
+    }
     const agentOption = option(args, "--agent") ?? "all";
     const supported: SupportedAgent[] = ["codex", "opencode", "command-code", "workbuddy", "trae"];
     const agents = agentOption === "all" ? supported : supported.filter((agent) => agent === agentOption);
     if (agents.length === 0) throw new Error(`Unsupported agent: ${agentOption}`);
-    const cliPath = process.argv[1] ?? resolve(import.meta.dirname, "cli.js");
-    const manager = new IntegrationManager(currentIntegrationRuntime(cliPath, config.dataDir));
     database.close();
     const statuses = agents.map((agent) => {
       if (action === "install") return manager.install(agent);

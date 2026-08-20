@@ -1,6 +1,33 @@
-# MemoryGraph
+<p align="center">
+  <img src="src-tauri/icons/icon.png" width="112" alt="MemoryGraph logo">
+</p>
 
-[中文](#中文) · [English](#english)
+<h1 align="center">MemoryGraph</h1>
+
+<p align="center"><strong>One project state. Any agent. Continue anywhere.</strong><br>一份项目状态，任意 Agent，随处继续。</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/MCP-stdio-6f5bd3" alt="MCP stdio">
+  <img src="https://img.shields.io/badge/Node.js-22.5%2B-43853d" alt="Node.js 22.5+">
+  <img src="https://img.shields.io/badge/TypeScript-7-3178c6" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Tauri-2-24c8db" alt="Tauri 2">
+  <img src="https://img.shields.io/badge/storage-local--first-f26b38" alt="Local first">
+</p>
+
+<p align="center"><a href="#中文">中文</a> · <a href="#english">English</a> · <a href="docs/PRODUCT_SPEC.md">Product Spec</a> · <a href="docs/SECURITY.md">Security</a></p>
+
+```mermaid
+flowchart LR
+  A[Desktop Agents] --> G[Skill / MCP / REST]
+  B[CLI Agents] --> G
+  C[IDE Agents] --> G
+  D[DeepSeek or custom harnesses] --> G
+  G --> M[MemoryGraph Core]
+  M --> E[(Event / Fact / Decision / State)]
+  M --> H[Handoff Compiler]
+  M --> V[Atlas / Graph / Tree / Timeline / Handoff]
+  M -. optional projection .-> N[(Neo4j / Graphiti)]
+```
 
 ---
 
@@ -13,6 +40,33 @@ MemoryGraph 是一个本地优先的跨 Agent 项目状态层。它让接班 Age
 - **Project State，不只是 Memory**：当前事实与原始历史分开保存。
 - **Handoff，不只是 Search**：“继续”会编译成有 token 上限、可直接执行的交接上下文。
 - **Atlas，不只是 Viewer**：五种视图展示整个工作区、项目关系、时间线和 Agent 轨迹。
+
+### 任意 Agent，而不是 Agent 白名单
+
+MemoryGraph 不依赖某个模型厂商，也不区分桌面端、CLI、IDE 插件或自定义 harness。兼容性由协议能力决定：
+
+| Agent / Harness 能力 | 接入方式 | 能做什么 |
+|---|---|---|
+| 支持 MCP stdio | 连接 MemoryGraph MCP | 完整使用 `resume_project`、`search`、`remember`、`trace` 等工具 |
+| 支持 Agent Skills | 安装 `integrations/skills/memorygraph` | 用“继续”等自然语言自动选择正确 MCP 工具 |
+| 不支持 MCP，但能发 HTTP | 调用本机 REST API | DeepSeek harness、脚本或自定义 Agent 可直接 resume/search/remember |
+| 需要自动读取原生历史 | 增加 `AgentAdapter` | 从该工具自己的 session/log/database 增量导入原始事件 |
+
+因此以下形态都能接入：
+
+- 桌面端 Agent App
+- CLI Agent
+- IDE/编辑器 Agent
+- DeepSeek、Qwen、GLM 等模型驱动的自定义 harness
+- 自研脚本、编排器或多 Agent 系统
+
+`codex`、`opencode`、`command-code`、`workbuddy`、`trae` 只是仓库已经内置的**一键配置/被动采集预设**，不是支持列表。
+
+输出任意 harness 可使用的通用接入清单：
+
+```bash
+node dist/cli.js integration manifest
+```
 
 ### 只安装 Skill 就够了吗？
 
@@ -83,7 +137,7 @@ node dist/cli.js resume \
   --agent opencode
 ```
 
-### 安装到 Agent
+### 内置 Agent 预设与通用接入
 
 查看状态并安装 Skill + MCP：
 
@@ -92,7 +146,7 @@ node dist/cli.js integration status --agent all
 node dist/cli.js integration install --agent all
 ```
 
-支持的 Agent 名称：
+当前内置的一键预设：
 
 - `codex`
 - `opencode`
@@ -100,7 +154,41 @@ node dist/cli.js integration install --agent all
 - `workbuddy`
 - `trae`
 
-安装器只管理名为 `memorygraph` 的条目；修改 JSON 配置前会生成时间戳备份，Skill 更新和卸载也保留可恢复副本。
+这些名称只代表 MemoryGraph 已经知道如何自动修改其配置和/或读取其原生会话。其它 Agent 不需要等待进入这个列表：直接使用 `integration manifest` 中的 MCP stdio 配置，或调用 REST API 即可。
+
+通用 MCP 配置形状：
+
+```json
+{
+  "mcpServers": {
+    "memorygraph": {
+      "command": "/absolute/path/to/node",
+      "args": [
+        "/absolute/path/to/memorygraph/dist/cli.js",
+        "mcp",
+        "--data-dir",
+        "/absolute/path/to/memorygraph-data"
+      ]
+    }
+  }
+}
+```
+
+没有 MCP 的 DeepSeek/custom harness 可以直接调用：
+
+```bash
+curl -X POST http://127.0.0.1:4765/api/resume \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "cwd": "/path/to/project",
+    "receiving_agent": "deepseek-harness",
+    "token_budget": 1500
+  }'
+```
+
+注意：任意 Agent 都能主动使用共享状态；但如果一个未知的闭源工具从未调用 MCP/REST，而你又希望 MemoryGraph 自动读取它过去的私有聊天数据库，就必须为该私有格式增加 Adapter。没有系统能在不知道格式和权限的情况下安全读取任意闭源 App 的内部会话。
+
+预设安装器只管理名为 `memorygraph` 的条目；修改 JSON 配置前会生成时间戳备份，Skill 更新和卸载也保留可恢复副本。
 
 卸载某个 Agent 的接入：
 
@@ -267,6 +355,33 @@ The product is built around three distinctions:
 - **Handoff, not only Search** — “continue” compiles bounded, task-ready context.
 - **Atlas, not only Viewer** — five views explain the workspace, projects, timeline, and agent trail.
 
+### Any agent, not an agent allowlist
+
+MemoryGraph is model-vendor agnostic and does not care whether a client is a desktop app, CLI, IDE plugin, or custom harness. Compatibility is protocol-based:
+
+| Agent / harness capability | Integration path | Result |
+|---|---|---|
+| MCP stdio | Connect the MemoryGraph MCP server | Full `resume_project`, `search`, `remember`, `trace`, and related tools |
+| Agent Skills | Install `integrations/skills/memorygraph` | Natural-language intents such as “continue” route to the correct MCP tool |
+| HTTP but no MCP | Call the local REST API | DeepSeek harnesses, scripts, and custom agents can resume/search/remember directly |
+| Passive native-history import | Implement `AgentAdapter` | Incrementally ingest that tool’s private session/log/database format |
+
+This covers:
+
+- desktop agent apps;
+- CLI agents;
+- IDE/editor agents;
+- custom harnesses driven by DeepSeek, Qwen, GLM, or other models;
+- internal orchestrators and multi-agent systems.
+
+`codex`, `opencode`, `command-code`, `workbuddy`, and `trae` are bundled **one-command configuration/passive-capture presets**, not the compatibility list.
+
+Print a universal integration manifest for any harness:
+
+```bash
+node dist/cli.js integration manifest
+```
+
 ### Is installing the Skill enough?
 
 No. The complete path has three parts:
@@ -323,7 +438,7 @@ node dist/cli.js resume \
   --agent opencode
 ```
 
-### Agent integration
+### Bundled presets and universal integration
 
 Inspect and install Skill + MCP entries:
 
@@ -332,7 +447,7 @@ node dist/cli.js integration status --agent all
 node dist/cli.js integration install --agent all
 ```
 
-Supported agent identifiers:
+Bundled one-command presets:
 
 - `codex`
 - `opencode`
@@ -340,7 +455,41 @@ Supported agent identifiers:
 - `workbuddy`
 - `trae`
 
-The installer manages only the `memorygraph` entry. JSON configs are backed up before mutation, and replaced/removed Skill directories remain recoverable.
+These names only mean that MemoryGraph already knows how to mutate that client’s config and/or passively read its native sessions. Every other agent can integrate immediately through the MCP manifest or REST API.
+
+Generic MCP shape:
+
+```json
+{
+  "mcpServers": {
+    "memorygraph": {
+      "command": "/absolute/path/to/node",
+      "args": [
+        "/absolute/path/to/memorygraph/dist/cli.js",
+        "mcp",
+        "--data-dir",
+        "/absolute/path/to/memorygraph-data"
+      ]
+    }
+  }
+}
+```
+
+DeepSeek/custom harness without MCP:
+
+```bash
+curl -X POST http://127.0.0.1:4765/api/resume \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "cwd": "/path/to/project",
+    "receiving_agent": "deepseek-harness",
+    "token_budget": 1500
+  }'
+```
+
+Any agent can actively use shared state. Passive import is different: if an unknown closed-source tool never called MCP/REST and you want MemoryGraph to read its historical private chat database automatically, an adapter for that private format is required. No system can safely infer every closed-source storage format and permission boundary.
+
+The preset installer manages only the `memorygraph` entry. JSON configs are backed up before mutation, and replaced/removed Skill directories remain recoverable.
 
 Remove one integration:
 

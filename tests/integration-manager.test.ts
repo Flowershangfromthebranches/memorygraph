@@ -46,6 +46,15 @@ function fixture() {
 }
 
 describe("IntegrationManager", () => {
+  it("publishes a protocol-level manifest for any MCP or REST harness", () => {
+    const { manager } = fixture();
+    const manifest = manager.universalManifest() as Record<string, any>;
+    expect(manifest.compatibility).toContain("Any agent");
+    expect(manifest.mcp.genericConfig.mcpServers.memorygraph.command).toBe("/usr/bin/node");
+    expect(manifest.rest.endpoints.resume).toEqual({ method: "POST", path: "/api/resume" });
+    expect(manifest.bundledPresets).toEqual(["codex", "opencode", "command-code", "workbuddy", "trae"]);
+  });
+
   it("quotes Linux service paths that contain spaces", () => {
     const unit = renderLinuxUnit({
       nodePath: "/opt/node bin/node",
