@@ -10,6 +10,13 @@
 - Preserve source evidence as locators; do not copy complete tool output or reasoning traces.
 - Exclude internal Codex subagent/control sessions from user project memory while retaining an auditable exclusion marker in the raw store.
 
+## Repository publication
+
+- `.env` files, the generated `.memorygraph/` state directory, databases, logs, and backup files are excluded from version control.
+- Keep `NEO4J_PASSWORD`, `GRAPHITI_API_KEY`, and provider credentials in the process environment or a secret manager. The Compose file intentionally requires `NEO4J_PASSWORD` instead of supplying a shared default.
+- Before publishing, inspect both the working tree and Git history for user names, home-directory paths, credentials, private keys, session exports, and generated runtime state.
+- Use placeholders such as `<project-path>` in documentation and fixtures; do not paste a workstation path into a tracked file.
+
 ## Trust boundaries
 
 Agent session content is untrusted input. It can become evidence, but it cannot change MemoryGraph configuration, run commands, or authorize external transmission.

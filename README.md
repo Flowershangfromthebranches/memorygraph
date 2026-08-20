@@ -41,6 +41,10 @@ MemoryGraph 是一个本地优先的跨 Agent 项目状态层。它让接班 Age
 - **Handoff，不只是 Search**：“继续”会编译成有 token 上限、可直接执行的交接上下文。
 - **Atlas，不只是 Viewer**：五种视图展示整个工作区、项目关系、时间线和 Agent 轨迹。
 
+### 发布前隐私检查
+
+仓库只包含源代码、文档、测试夹具和示例配置。`.env`、生成的 `.memorygraph/` 状态目录、数据库、日志和备份文件均不应提交；`NEO4J_PASSWORD`、`GRAPHITI_API_KEY` 等凭据只从进程环境或密钥管理器读取。发布前请同时检查工作树和 Git 历史，确认没有用户名、主目录路径、会话导出、私钥或真实凭据。
+
 ### 任意 Agent，而不是 Agent 白名单
 
 MemoryGraph 不依赖某个模型厂商，也不区分桌面端、CLI、IDE 插件或自定义 harness。兼容性由协议能力决定：
@@ -315,9 +319,10 @@ MCP Resources 覆盖 Workspace、Project State、Decision、Issue、Timeline 和
 SQLite 永远是权威数据源。Neo4j 和 Graphiti 都可以从原始事件重新生成。
 
 ```bash
+read -r -s -p "Neo4j password: " NEO4J_PASSWORD; echo
+export NEO4J_PASSWORD
 docker compose up -d neo4j
-NEO4J_PASSWORD=memorygraph-local \
-  node dist/cli.js project-neo4j /path/to/project
+node dist/cli.js project-neo4j /path/to/project
 ```
 
 设置 `GRAPHITI_URL` 可以连接 Graphiti MCP HTTP endpoint。MemoryGraph 使用项目 UUID 作为 `group_id`，传递事件发生时间，并在 `add_memory` 后验证 episode 确实可查询；仅返回“queued”不视为写入成功。
@@ -337,11 +342,24 @@ npm run desktop:build -- --bundles app
 npm run validate
 npm run verify:stdio -- /path/to/project /path/to/data opencode
 npm run verify:opencode-adapter -- /path/from/a/real/opencode/session /path/to/opencode.db
-NEO4J_TEST=1 NEO4J_PASSWORD=memorygraph-local \
+NEO4J_TEST=1 NEO4J_PASSWORD="$NEO4J_PASSWORD" \
   npx vitest run tests/neo4j.integration.test.ts
 ```
 
 详细完成标准见 [PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md)，证据分类见 [VALIDATION.md](docs/VALIDATION.md)，隐私边界见 [SECURITY.md](docs/SECURITY.md)。
+
+### 致谢
+
+MemoryGraph 是独立实现。协议、接口、布局和集成边界参考了以下公开项目与标准；感谢它们的维护者和贡献者：
+
+- [Model Context Protocol](https://modelcontextprotocol.io/) 与 [官方 TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)：MCP 工具、资源和 stdio 互操作。
+- [Graphology](https://graphology.github.io/) 与 [Sigma.js](https://www.sigmajs.org/)：图模型和 WebGL 图谱渲染。
+- [d3-hierarchy](https://d3js.org/)：叙事树布局。
+- [Neo4j](https://neo4j.com/)：可选图投影后端。
+- [Graphiti](https://github.com/getzep/graphiti)：可选的时间/语义丰富化集成边界。
+- [React](https://react.dev/)、[Vite](https://vite.dev/) 与 [Tauri](https://tauri.app/)：Web UI、构建和桌面容器。
+
+本项目通过公开 API、文档和各项目的正常依赖方式进行集成，不代表与上述项目存在隶属、赞助或官方背书关系；许可证与商标归各自项目所有。
 
 ---
 
@@ -354,6 +372,10 @@ The product is built around three distinctions:
 - **Project State, not only Memory** — current truth is separate from raw history.
 - **Handoff, not only Search** — “continue” compiles bounded, task-ready context.
 - **Atlas, not only Viewer** — five views explain the workspace, projects, timeline, and agent trail.
+
+### Release privacy checklist
+
+The repository contains source code, documentation, fixtures, and placeholder configuration only. Do not commit `.env` files, generated `.memorygraph/` state, databases, logs, or backups. Keep `NEO4J_PASSWORD`, `GRAPHITI_API_KEY`, and other credentials in the process environment or a secret manager. Before publishing, inspect both the working tree and Git history for usernames, home-directory paths, session exports, private keys, and real credentials.
 
 ### Any agent, not an agent allowlist
 
@@ -600,9 +622,10 @@ MCP Resources cover Workspace, Project State, Decisions, Issues, Timeline, and H
 SQLite is always authoritative. Neo4j and Graphiti can be rebuilt from raw events.
 
 ```bash
+read -r -s -p "Neo4j password: " NEO4J_PASSWORD; echo
+export NEO4J_PASSWORD
 docker compose up -d neo4j
-NEO4J_PASSWORD=memorygraph-local \
-  node dist/cli.js project-neo4j /path/to/project
+node dist/cli.js project-neo4j /path/to/project
 ```
 
 Set `GRAPHITI_URL` to a Graphiti MCP HTTP endpoint for semantic enrichment. MemoryGraph uses the project UUID as `group_id`, sends event occurrence time, and verifies that an episode is queryable after `add_memory`; a queued response alone is not treated as success.
@@ -622,8 +645,21 @@ The Tauri console connects to Core at `127.0.0.1:4765`. Install the Core service
 npm run validate
 npm run verify:stdio -- /path/to/project /path/to/data opencode
 npm run verify:opencode-adapter -- /path/from/a/real/opencode/session /path/to/opencode.db
-NEO4J_TEST=1 NEO4J_PASSWORD=memorygraph-local \
+NEO4J_TEST=1 NEO4J_PASSWORD="$NEO4J_PASSWORD" \
   npx vitest run tests/neo4j.integration.test.ts
 ```
 
 See [PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) for completion gates, [VALIDATION.md](docs/VALIDATION.md) for evidence categories, and [SECURITY.md](docs/SECURITY.md) for privacy boundaries.
+
+### Acknowledgments
+
+MemoryGraph is an independent implementation. Its protocol, interfaces, layouts, and integration boundaries draw on the following public projects and standards; thank you to their maintainers and contributors:
+
+- [Model Context Protocol](https://modelcontextprotocol.io/) and the [official TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) for MCP tools, resources, and stdio interoperability.
+- [Graphology](https://graphology.github.io/) and [Sigma.js](https://www.sigmajs.org/) for the graph model and WebGL visualization.
+- [d3-hierarchy](https://d3js.org/) for the narrative-tree layout.
+- [Neo4j](https://neo4j.com/) for the optional graph projection backend.
+- [Graphiti](https://github.com/getzep/graphiti) for the optional temporal/semantic enrichment integration boundary.
+- [React](https://react.dev/), [Vite](https://vite.dev/), and [Tauri](https://tauri.app/) for the web UI, build tooling, and desktop shell.
+
+MemoryGraph integrates through public APIs, documentation, and normal package dependencies. It is not affiliated with, sponsored by, or endorsed by the projects above; their licenses and trademarks remain with their respective owners.

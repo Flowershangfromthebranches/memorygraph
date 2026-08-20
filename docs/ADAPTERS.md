@@ -10,7 +10,7 @@ All adapters are read-only, incremental, source-specific, and cursor-backed. The
 | WorkBuddy | `~/.workbuddy/projects/**/*.jsonl` | Messages, function calls/results, snapshots | byte offset per JSONL |
 | Trae | workspace metadata + MCP live capture | Workspace activity only from passive storage | workspace mtime |
 
-Trae’s native transcript database on the inspected macOS installation is opaque or encrypted. MemoryGraph does not extract keys or reverse security boundaries. Full-detail Trae state is captured through the installed MCP + Skill while passive sync remains honest about its limitation.
+Trae’s native transcript store may be opaque or encrypted depending on the client build. MemoryGraph does not extract keys or reverse security boundaries. Full-detail Trae state is captured through the installed MCP + Skill while passive sync remains honest about its limitation.
 
 ## Project matching
 
@@ -19,4 +19,3 @@ An adapter accepts a session when its cwd is inside a registered project root. I
 ## Redaction
 
 Before persistence, recursively redact keys matching authorization, cookies, credentials, passwords, secrets, tokens, API keys, or private keys. Recognizable bearer and provider-token strings in text are also replaced. Tool outputs are represented by size and call identity rather than copied in full.
-

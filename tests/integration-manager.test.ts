@@ -56,15 +56,18 @@ describe("IntegrationManager", () => {
   });
 
   it("quotes Linux service paths that contain spaces", () => {
+    const serviceRoot = join(tmpdir(), "memorygraph-service fixture");
+    const serviceCliPath = join(serviceRoot, "dist", "cli.js");
+    const serviceDataDir = join(serviceRoot, "data dir");
     const unit = renderLinuxUnit({
       nodePath: "/opt/node bin/node",
-      cliPath: "/Users/example/New project/memorygraph/dist/cli.js",
-      dataDir: "/Users/example/Library/Application Support/MemoryGraph",
+      cliPath: serviceCliPath,
+      dataDir: serviceDataDir,
       host: "127.0.0.1",
       port: 4765,
     });
-    expect(unit).toContain('ExecStart="/opt/node bin/node" "/Users/example/New project/memorygraph/dist/cli.js"');
-    expect(unit).toContain('--data-dir "/Users/example/Library/Application Support/MemoryGraph"');
+    expect(unit).toContain(`ExecStart="/opt/node bin/node" "${serviceCliPath}"`);
+    expect(unit).toContain(`--data-dir "${serviceDataDir}"`);
   });
 
   it("installs and recoverably removes OpenCode MCP plus Skill without overwriting unrelated config", () => {
